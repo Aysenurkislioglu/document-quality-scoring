@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Sentetik veri: script'lerle yeniden üretilebilir (generate_*.py), repo'yu
+# şişirmemek için commit edilmiyor. Üretmek için README.md'deki komutlara bakın.
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep

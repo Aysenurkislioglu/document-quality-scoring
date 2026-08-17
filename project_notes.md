@@ -1,0 +1,646 @@
+# Project Notes — Document Quality Scoring
+
+Bu dosya, projede yapılan çalışmaların kısa ve güncel bir kaydını tutar. Her modül
+tamamlandığında buraya yeni bir bölüm eklenir. Detaylı literatür için `research/`
+klasörüne, deney kodları için `experiments/` ve `src/` klasörlerine, ham sonuçlar için
+`results/` klasörüne bakınız.
+
+---
+
+## Genel Proje Planı ve Mimari Kararlar
+
+**Hedef:** Belge görüntülerindeki beş kalite problemini (blur, glare, darkness, skew,
+occlusion) ayrı ayrı ölçüp, açıklanabilir bir 0-100 Document Quality Score üretmek.
+Nihai motivasyon: kimlikte sahtecilikte kullanılan/gizlenen bozulmaları — özellikle CNN
+gibi ağır, "kara kutu" ve sahtekârların atlatmasının nispeten kolay olduğu yöntemler yerine
+**daha yüksek doğrulukta, uygulanabilir ve gerekçelendirilebilir** yöntemlerle — tespit
+edebilmek.
+
+**Seçilen mimari:** Hibrit (Classical CV + OCR/Layout + gerekli noktalarda Deep Learning →
+feature vector → ML regresyon → 0-100 skor). Gerekçe: `research/literature_review.md`,
+Bölüm 5.
+
+**Yol haritası (yüksek seviye):**
+
+| Aşama | İçerik | Durum |
+|---|---|---|
+| 1 | Literatür + dataset araştırması | ✅ Tamamlandı (`research/`) |
+| 2 | Proje tasarımı, klasör yapısı, deney planı | ✅ Tamamlandı |
+| 3 | Implementation: Blur → Glare → Darkness → Skew → Occlusion | 🔄 Blur tamamlandı, diğerleri bekliyor |
+| 4 | Kontrollü sentetik + gerçek veri deneyleri | 🔄 Blur için tamamlandı |
+| 5 | Feature fusion + ML skorlama | ⏳ Bekliyor |
+| 6 | Karşılaştırmalı değerlendirme | ⏳ Bekliyor |
+| 7 | Nihai rapor | ⏳ Bekliyor (tüm modüller bitince) |
+| 8 | Final review | ⏳ Bekliyor |
+
+**Önemli genel karar:** Şu ana kadar hiçbir gerçek belge görüntüsü veri seti (örn.
+SmartDoc-QA) projeye indirilip entegre edilmedi. İlk baseline deneyleri **sentetik olarak
+üretilen belge görüntüleri + kontrollü bozulma** üzerinde yapılıyor. Bunun nedeni ve
+sınırlamaları ilgili modül notlarında (aşağıda) açıklanmıştır. Gerçek veri entegrasyonu
+gelecek bir aşama olarak planlanmıştır.
+
+---
+
+## Modül: BLUR
+
+**Tarih:** 17 Ağustos 2026
+
+### Problem
+
+Belge görüntülerinde odaklama hatası veya hareket nedeniyle oluşan bulanıklığı (blur)
+ölçmek ve bunu 0-100 ölçeğinde yorumlanabilir bir alt-skora çevirmek.
+
+### Araştırılan yöntemler
+
+`research/literature_review.md` Bölüm 2.1'de özetlendiği gibi: Laplacian Variance,
+Gradient magnitude (Sobel/Scharr), Tenengrad, edge density, frekans-alanı (FFT) yöntemleri,
+local sharpness ölçümleri (LBP/Log-Gabor + SVR gibi öğrenme tabanlı yaklaşımlar dahil).
+🔎 Dış araştırmada ayrıca blur+text-size'ı birlikte modelleyen yaklaşımlar ve blur
+tespiti+restorasyonunu birleştiren güncel (2026) bir çalışma bulundu.
+
+### Seçtiğimiz yöntem
+
+Bu aşamada **Laplacian Variance** ve **Tenengrad (Sobel gradient magnitude)** uygulandı;
+çapraz kontrol amacıyla ek olarak **Gradient Magnitude Mean** de hesaplandı.
+
+### Neden bu yöntemi seçtik?
+
+- İkisi de eğitim/veri gerektirmiyor → hızlı başlangıç (baseline) için uygun.
+- Literatürün "önce klasik CV baseline, sonra gerekirse öğrenme tabanlı yöntem" önerisiyle
+  tutarlı (`research/literature_review.md`, Bölüm 5).
+- Laplacian (ikinci türev) ve Tenengrad (birinci türev) farklı matematiksel araçlar
+  kullandığı için birbirini doğrulayan/çapraz kontrol eden iki bağımsız sinyal sağlıyor —
+  proje hedefindeki "sahtekârların kolayca atlatamayacağı, açıklanabilir yöntem" isteğiyle
+  örtüşüyor: ikisi çelişirse bu durum kendi başına bir sinyal (örn. gürültü/manipülasyon
+  şüphesi) olarak kullanılabilir.
+- Her iki yöntemin nasıl çalıştığına dair açıklama: `src/blur/README.md`.
+
+### Kullanılan parametreler
+
+| Parametre | Değer |
+|---|---|
+| Laplacian ksize | 1 (OpenCV varsayılanı) |
+| Sobel ksize (Tenengrad) | 3 |
+| Tenengrad threshold | 0 (tüm pikseller kullanıldı, gürültü filtresi uygulanmadı) |
+| Gaussian blur sigma seviyeleri (bozulma şiddeti) | 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0 (9 seviye) |
+
+### Yapılan deney
+
+**Veri:** Gerçek veri seti henüz entegre edilmediği için, `experiments/blur/generate_synthetic_documents.py`
+ile 12 sentetik belge görüntüsü üretildi (3 font boyutu: 14/20/28px × 2 paragraf yoğunluğu:
+2/5 paragraf × 2 tekrar). Her belge başlık, mock kimlik alanları (Ad Soyad, Belge No,
+Tarih) ve gövde metni içeriyor (`data/synthetic/blur/originals/`).
+
+`experiments/blur/apply_degradation.py` ile her belgeye 9 farklı şiddette Gaussian blur
+uygulanıp toplam 108 görüntü üretildi (`data/synthetic/blur/degraded/`).
+
+`experiments/blur/run_experiment.py` ile:
+1. Her görüntü için 3 metrik hesaplandı → `results/blur/scores.csv`
+2. Her belge için, şiddet seviyesi ile skor arasındaki **Spearman korelasyonu**
+   hesaplandı (monotonluk testi) → `results/blur/monotonicity_summary.csv`
+3. Bozulma olmadan (severity=0), font boyutuna göre skorların ne kadar değiştiği
+   (coefficient of variation) ölçüldü → `results/blur/baseline_by_fontsize.csv`,
+   `results/blur/baseline_coefficient_of_variation.csv`
+4. Grafikler üretildi → `results/blur/plots/`
+
+### Deney sonucu
+
+**1) Monotonluk (bozulma şiddeti arttıkça skor tutarlı biçimde düşüyor mu?)**
+
+| Metrik | Ortalama Spearman rho (12 belge) | Min | Max |
+|---|---|---|---|
+| Laplacian Variance | −0.9986 | −1.0000 | −0.9833 |
+| Tenengrad | −1.0000 | −1.0000 | −1.0000 |
+| Gradient Magnitude Mean | −1.0000 | −1.0000 | −1.0000 |
+
+Her iki ana yöntem de, test edilen sentetik veri üzerinde **neredeyse mükemmel monoton
+azalma** gösterdi (rho ≈ −1). Tenengrad, 12 belgenin tamamında kusursuz monotonluk
+gösterirken, Laplacian Variance 1 belgede (doc_001) çok küçük bir sapma gösterdi (rho =
+−0.983, yine de çok güçlü). Grafikler: `results/blur/plots/score_vs_severity.png` ve
+log-ölçekli versiyonu `score_vs_severity_logscale.png`.
+
+**2) Font boyutu duyarlılığı (literatürün "tek eşik güvenilir değil" iddiasının testi)**
+
+| Metrik | Coefficient of Variation (font boyutları arası, blur yokken) |
+|---|---|
+| Laplacian Variance | 0.272 |
+| Tenengrad | 0.321 |
+| Gradient Magnitude Mean | 0.276 |
+
+Yani **hiç blur olmasa bile**, yalnızca font boyutu farkı yüzünden skorlar %27-32
+oranında değişkenlik gösteriyor (`results/blur/plots/baseline_by_fontsize.png`). Bu,
+`research/literature_review.md`'de aktarılan "tek bir sabit Laplacian threshold'u farklı
+belge/font koşullarında güvenilir değildir" iddiasını **bu sentetik veri özelinde
+doğruluyor.**
+
+### Karşılaşılan problemler
+
+- İlk grafik denemesinde (doğrusal y ekseni) skorlar şiddet seviyesi 3'ten sonra görsel
+  olarak "sıfıra yapışmış" gibi görünüyordu; bu yanıltıcıydı çünkü Spearman korelasyonu
+  yüksek seviyelerde de güçlü monotonluk gösteriyordu. **Çözüm:** log-ölçekli ek bir grafik
+  eklendi (`score_vs_severity_logscale.png`), skorların hiçbir seviyede tam sıfıra
+  inmediği (Bash ile min değerler kontrol edildi) doğrulandıktan sonra.
+- Sentetik metin üretimi için gerçek bir "lorem ipsum" kütüphanesi yerine küçük bir
+  Türkçe kelime havuzundan rastgele kelime seçimi kullanıldı; bu metinler anlamsız ama
+  görsel olarak gerçek bir belgeye yeterince benziyor (kenar/doku istatistikleri
+  açısından amaca uygun).
+
+### Aldığımız kararlar
+
+1. **Gerçek veri yerine sentetik veri ile başlama kararı:** SmartDoc-QA gibi gerçek
+   datasetler henüz indirilip lisans/boyut değerlendirmesi yapılmadığı için, ilk baseline
+   doğrulaması kontrollü sentetik veri üzerinde yapıldı. Bu, yöntemin *temel davranışını*
+   (monotonluk) ucuza ve hızlıca doğrulamaya yetti, ama **gerçek kamera blur'unun
+   (defocus + motion blur karışımı, JPEG artefaktları, gerçek kağıt dokusu) sentetik
+   Gaussian blur'dan farklı davranabileceği** unutulmamalı. Gerçek veri ile tekrar test
+   edilmesi gerekiyor (bkz. sonraki adım).
+2. **Laplacian ve Tenengrad'ın birlikte kullanılmasına karar verildi** (tek yöntem değil)
+   — ikisinin uyuşması, tek bir metriğe göre daha güvenilir bir sinyal.
+3. **Mutlak bir "iyi/kötü" eşik değeri bu aşamada belirlenmedi.** Font boyutu deneyi,
+   sabit bir eşiğin güvenilir olmayacağını gösterdiği için, ileride (Aşama 5 — ML skor
+   füzyonu) mutlak skor yerine göreceli/öğrenilmiş bir skorlama tercih edilecek.
+
+### Bir sonraki adım
+
+Kullanıcı talimatına göre bu aşamada diğer kalite problemlerine geçilmiyor. Blur modülü
+tamamlandı olarak işaretlendi. Sıradaki modül: **Glare**.
+
+Ayrıca, ileride (tüm modüller bitince) ele alınacak açık noktalar:
+- Blur ölçümünün gerçek (sentetik olmayan) belge görüntüleriyle tekrar test edilmesi.
+- Gürültü (noise) etkisinin ayrıca test edilmesi (Laplacian'ın gürültüye Tenengrad'dan
+  daha duyarlı olduğu literatür iddiası henüz sınanmadı).
+- Font boyutu duyarlılığının, skor füzyon aşamasında nasıl telafi edileceğinin
+  (normalizasyon mu, ek feature mı) belirlenmesi.
+
+---
+
+## Modül: GLARE
+
+**Tarih:** 17 Ağustos 2026
+
+### Problem
+
+Belge yüzeyinden gelen güçlü ışık yansımasının hangi bölgelerde bilgi kaybına yol açtığını
+tespit etmek ve bunu bir alt-skora çevirmek.
+
+### Araştırılan yöntemler
+
+`research/literature_review.md` Bölüm 2.2: luminance/brightness + HSV + saturation +
+thresholding + connected components (klasik baseline); Rodin & Orlov (2019) CNN tabanlı
+glare heatmap (ileri yöntem, bloklara ayırma + luminance + binarize stroke histogramı +
+CNN). Literatür açıkça uyarıyor: "beyaz belge alanı da yüksek parlaklığa sahip olabilir",
+bu yüzden tek başına threshold yanlış pozitiflere yol açabilir.
+
+### Seçtiğimiz yöntem
+
+Klasik baseline: **HSV eşikleme (yüksek V + düşük S) + Connected Components filtreleme**,
+yalnızca belgenin içerik kutusu (content bounding box) içinde uygulandı.
+
+### Neden bu yöntemi seçtik?
+
+Literatürün önerdiği ilk aşama baseline bu olduğu için (`research/literature_review.md`,
+Bölüm 5 — "önce klasik CV baseline"). Yöntemin nasıl çalıştığı: `src/glare/README.md`.
+
+### Kullanılan parametreler
+
+| Parametre | Değer |
+|---|---|
+| V (parlaklık) eşiği | ≥ 235 (0-255) |
+| S (saturasyon) eşiği | ≤ 35 (0-255) |
+| Min. bağlı bileşen alanı | 15 piksel |
+| ROI | Belgenin içerik kutusu (kenar boşlukları hariç) |
+| Enjekte edilen glare şiddet seviyeleri | içerik alanının %0 / %3 / %6 / %10 / %15 / %22'si (hedef alan, Gaussian yumuşak geçişli daire) |
+
+### Yapılan deney
+
+`experiments/glare/generate_glare_documents.py`: Blur modülüyle aynı 12 sentetik belge
+ızgarası (font boyutu × paragraf sayısı × tekrar) yeniden üretildi (bu kez içerik
+kutusu/kimlik alanı koordinatları da kaydedilerek — bkz. `experiments/_common/synthetic_documents.py`,
+DRY amaçlı ortak üretici). Her belgeye, merkezi içerik kutusunun ortasında, yumuşak
+(Gaussian) kenarlı, artan büyüklükte bir "glare lekesi" eklendi; yer gerçeği glare alanı
+(alpha > 0.5 bölgesi) her seviye için ayrıca ölçülüp kaydedildi.
+
+`experiments/glare/run_experiment.py`: her görüntü için iki metrik hesaplandı:
+1. **naive_glare_ratio** — gerçek/üretime uygun yöntem (yukarıdaki HSV+CC baseline).
+2. **oracle_text_washout_ratio** — YALNIZCA bu deneyi doğrulamak için eklenen,
+   referans (temiz orijinal) gerektiren yardımcı metrik: orijinalde koyu (metin) olan
+   piksellerin ne kadarının bozulmuş görüntüde "yıkanmış/beyaz" hale geldiğini ölçer.
+   Üretimde kullanılamaz (temiz referans gerektirir), yalnızca "enjekte ettiğimiz sentetik
+   glare gerçekten ölçülebilir bir etki yaratıyor mu?" sorusunu ayırt etmek için eklendi.
+
+### Deney sonucu
+
+**Önemli bulgu — sonuç ilk bakışta yanıltıcı olabilir:** Spearman korelasyonuna göre her
+iki metrik de mükemmel monoton davranış gösterdi (rho = 1.0000, 12 belgenin tamamında).
+Ancak bu, `naive_glare_ratio`'nun pratikte işe yaradığı anlamına GELMİYOR:
+
+| Metrik | Severity=0 ortalama | Severity=5 ortalama | Mutlak değişim | Göreceli değişim |
+|---|---|---|---|---|
+| naive_glare_ratio | 0.849 | 0.860 | 0.011 | **%1.3** |
+| oracle_text_washout_ratio | 0.000 | 0.034 | 0.034 | (0'dan başladığı için % tanımsız, ama mutlak değişim anlamlı) |
+
+`naive_glare_ratio`, glare hiç yokken bile içerik kutusunun **%84.9'unu** "glare" olarak
+işaretliyor (`results/glare/false_positive_baseline.csv`) — çünkü satır aralarındaki ve
+paragraf boşluklarındaki sıradan beyaz alan da V yüksek + S düşük kriterini karşılıyor.
+Glare şiddeti arttıkça oran yalnızca %84.9'dan %86.0'a çıkıyor: teknik olarak "monoton"
+ama pratikte **neredeyse ayırt edici gücü yok** (bkz. `results/glare/plots/naive_vs_ground_truth_scatter.png`
+— belgeler arası gürültü, gerçek sinyali tamamen gölgeliyor).
+
+Buna karşılık `oracle_text_washout_ratio` (yalnızca doğrulama amaçlı, referans gerektiren
+metrik), 0'dan 0.034'e net ve tutarlı bir artış gösterdi — yani **enjekte ettiğimiz
+sentetik glare'in gerçek, ölçülebilir bir etkisi var**; sorun veride değil, `naive_glare_ratio`
+yönteminin bu sinyali yakalayamamasında.
+
+Grafikler: `results/glare/plots/naive_vs_oracle.png`, `naive_vs_ground_truth_scatter.png`.
+
+### Karşılaşılan problemler
+
+- **Kritik teknik bulgu:** Sentetik belgelerimiz gri tonlamalı (PIL "L" modu) üretildiği
+  için, HSV'ye çevrildiğinde **Saturasyon (S) kanalı her zaman 0** çıkıyor (R=G=B olduğunda
+  S matematiksel olarak sıfırdır). Bu, yöntemin "S düşük" kriterinin **hiçbir ayırt edici
+  bilgi taşımadığı** anlamına geliyor — tespit tamamen V (parlaklık) eşiğine indirgeniyor,
+  ki bu da sıradan beyaz kağıdı gerçek glare'den ayıramıyor. Bu, literatürün "beyaz belge
+  alanı da yüksek parlaklığa sahip olabilir" uyarısının **en uç, en net biçimde
+  doğrulanmasıdır** — ama aynı zamanda deney tasarımımızın bir sınırlamasını da ortaya
+  koyuyor.
+- İlk grafik yalnızca Spearman rho'ya bakılarak yorumlanmaya çalışıldığında sonuç
+  yanıltıcı biçimde "başarılı" görünüyordu; `dynamic_range_analysis` eklenerek bu
+  yanılgı düzeltildi (bkz. "Aldığımız kararlar").
+
+### Aldığımız kararlar
+
+1. **Yalnızca Spearman korelasyonuna güvenmemeye karar verildi.** Bundan sonraki tüm
+   modüllerde monotonluk testinin yanına mutlaka bir **dynamic range / etki büyüklüğü**
+   analizi eklenecek (severity=0 ile severity=max arasındaki mutlak/göreceli fark).
+2. **Naive HSV+CC yöntemi mevcut haliyle bu projede kullanılmaya hazır değil** olarak
+   işaretlendi. Production'a geçmeden önce ya (a) renkli/gerçekçi kağıt tonu içeren veri
+   ile yeniden test edilmeli, ya da (b) ROI, tüm içerik kutusu yerine yalnızca metin
+   satırlarının sıkı sınırlayıcı kutularına daraltılmalı (böylece satır arası boşluklar
+   dışarıda kalır), ya da (c) literatürün önerdiği ileri yöntem (Rodin & Orlov'un stroke
+   histogram + CNN yaklaşımı) değerlendirilmeli. Bu, bir sonraki adıma not olarak
+   bırakıldı, bu pass'te düzeltilmedi (kapsamı dar tutma kararı).
+3. **Oracle metrik yalnızca deney doğrulaması için tutuldu, `src/glare/metrics.py`'ye
+   eklenmedi** — çünkü üretimde temiz referans görüntü olmayacak. `src/` klasörü yalnızca
+   gerçekten kullanılabilir/üretime uygun yöntemleri içermeli.
+
+### Bir sonraki adım
+
+Kullanıcı talimatına göre bu aşamada bir sonraki modüle (**Darkness**) geçiliyor. Glare
+yöntemi "tamamlandı" değil, "baseline olarak denendi ve mevcut haliyle yetersiz bulundu"
+statüsünde bırakıldı — bu, ileride (Aşama 6/7) tekrar ele alınacak açık bir konu olarak
+işaretlendi.
+
+---
+
+## Modül: DARKNESS
+
+**Tarih:** 17 Ağustos 2026
+
+### Problem
+
+Görüntü veya görüntünün belirli bölgelerinin yetersiz aydınlatılmış olmasını tespit etmek
+— ÖZELLİKLE global ortalamanın gizleyebileceği, küçük ama kritik bölgelerdeki (örn. kimlik
+numarası alanı) lokal karanlığı yakalayabilmek.
+
+### Araştırılan yöntemler
+
+`research/literature_review.md` Bölüm 2.3: mean/median brightness, histogram, percentile
+(P5-P95), local brightness/contrast (klasik baseline); illumination estimation / shadow
+segmentation (ileri yöntem, Wang et al. 2025 survey). Literatürün verdiği örnek doğrudan
+bu modülün test hipotezini oluşturdu: "aynı ortalama parlaklığa sahip iki görüntü farklı
+kalitede olabilir."
+
+### Seçtiğimiz yöntem
+
+Üç tamamlayıcı ölçüm birlikte uygulandı: **global mean/median**, **percentile analizi
+(P5/P25/P50/P75/P95)**, **blok-bazlı yerel (local) en-karanlık-blok ortalaması**
+(block_size=16px) + yerel kontrast. Detaylı açıklama: `src/darkness/README.md`.
+
+### Neden bu yöntemi seçtik?
+
+Literatürün kendisi tek bir global ölçümün yetersiz olabileceğini işaret ediyor; üç
+yaklaşımı birlikte test etmek, hangisinin gerçekten "lokal karanlık" problemini
+yakaladığını (varsayımla değil) veriyle göstermeyi sağladı.
+
+### Kullanılan parametreler
+
+| Parametre | Değer |
+|---|---|
+| Percentile'lar | 5, 25, 50, 75, 95 |
+| Blok boyutu (darkest_block_mean) | 16×16 piksel (küçük kimlik alanını —yaklaşık 105×26 px— yakalayabilmek için özellikle küçük seçildi) |
+| Global karartma şiddet seviyeleri | çarpan: 1.00 / 0.85 / 0.70 / 0.55 / 0.40 / 0.25 |
+| Lokal karartma şiddet seviyeleri | aynı çarpanlar, yalnızca "Belge No" alanına (+8px padding) uygulandı |
+
+### Yapılan deney
+
+`experiments/darkness/generate_darkness_documents.py`: aynı 12 sentetik belge ızgarası
+kullanılarak iki ayrı senaryo üretildi:
+1. **Global senaryo:** tüm görüntü aynı çarpanla karartıldı (72 görüntü).
+2. **Lokal senaryo:** yalnızca "Belge No" alanı (görüntünün ~%0.29'u) karartıldı, geri
+   kalan HİÇ değiştirilmedi (72 görüntü).
+
+`experiments/darkness/run_experiment.py`: her iki senaryo için `global_mean`, percentile'lar
+ve `darkest_block_mean` hesaplandı; monotonluk (Spearman) ve dynamic range analizleri
+yapıldı; iki senaryo karşılaştırmalı grafiklerle görselleştirildi.
+
+### Deney sonucu
+
+**Global senaryo:** Beklendiği gibi TÜM metrikler mükemmel monoton azalma gösterdi
+(rho = −1.0000, tüm metrikler, tüm belgeler).
+
+**Lokal senaryo — literatürün iddiasının doğrudan doğrulanması:**
+
+| Metrik | Severity=0 ort. | Severity=5 ort. | Göreceli değişim | Spearman rho (ort.) |
+|---|---|---|---|---|
+| global_mean | 238.33 | 237.50 | **−%0.35** | −1.0000 (ama pratikte anlamsız — bkz. aşağı) |
+| p25 / p50 | 255.00 | 255.00 | **%0** (sabit) | tanımsız (varyans yok) |
+| p5 | 70.58 | 67.17 | −%4.84 | −0.87 (kısmi duyarlılık) |
+| darkest_block_mean | 99.09 | 44.02 | **−%55.58** | −0.83 (güçlü, belirgin tepki) |
+
+Bu tablo, `research/literature_review.md`'de aktarılan iddiayı sayısal olarak doğruluyor:
+
+- **global_mean, teknik olarak "monoton" (rho=-1.0) olsa bile**, gerçek değişimi yalnızca
+  **%0.35** — yani pratikte tamamen kör. (Aynı glare modülünde gördüğümüz "yüksek rho,
+  düşük dynamic range" tuzağı burada da tekrarlandı — bkz. Glare bölümü, "Aldığımız
+  kararlar 1".)
+- **P25 ve P50, karartılan alan görüntünün %5'inden çok daha küçük olduğu için (%0.29),
+  HİÇ tepki vermedi** (sabit 255, korelasyon tanımsız). Bu, literatürdeki percentile
+  önerisinin bile küçük/lokalize bölgeler için tek başına yeterli olmayabileceğini
+  gösteren, dokümanda öngörülmemiş yeni bir bulgu.
+- **P5 kısmi bir sinyal yakaladı** (muhtemelen zaten var olan koyu metin piksellerinin P5
+  eşiğine yakın olması sayesinde) ama zayıf.
+- **darkest_block_mean (16×16 blok) en güçlü ve en anlamlı tepkiyi verdi** (%55.6 değişim,
+  görsel olarak da net bir eğim — bkz. `results/darkness/plots/global_vs_local_darkestblock.png`).
+  Bu, literatürün "blok-bazlı yerel analiz" önerisinin bu senaryoda gerçekten işe yaradığını
+  gösteriyor — Glare modülünün aksine, burada baseline yöntem beklendiği gibi çalıştı.
+
+Grafikler: `results/darkness/plots/global_vs_local_meanp5.png`,
+`global_vs_local_darkestblock.png`.
+
+### Karşılaşılan problemler
+
+- Font boyutu 28px olan belgelerde (doc_009-012), `darkest_block_mean`'in monotonluğu
+  diğerlerine göre biraz daha zayıf çıktı (rho ≈ −0.65 vs. diğerlerinde ≈ −0.85/−0.99) ve
+  `p5` bu belgelerde sabit (NaN korelasyon) kaldı. Olası açıklama: büyük fontta harf
+  gövdeleri daha kalın olduğu için "en karanlık blok" zaten (karartma öncesinde) mevcut
+  siyah metin pikselleri tarafından domine ediliyor olabilir; bu, karartmanın etkisini
+  kısmen maskeliyor olabilir. Bu, kesin olarak doğrulanmış bir açıklama DEĞİL, bir
+  hipotezdir — ileride ayrıca incelenmesi gerekiyor.
+
+### Aldığımız kararlar
+
+1. **Blok boyutu küçük tutuldu (16px).** İlk denemede daha büyük bir blok boyutu
+   düşünülmüştü, ama hedef alanın (~105×26 px) büyük bloklarla (örn. 32px) yeterince
+   "saf" biçimde örneklenemeyeceği öngörüldü; 16px seçimi, sonuçlarda görüldüğü gibi
+   isabetli oldu.
+2. **Nihai darkness skoru için, yalnızca global_mean/percentile YETERLİ DEĞİL** —
+   blok-bazlı yerel analiz mutlaka dahil edilmeli. Bu karar, skor füzyonu aşamasına
+   (Aşama 5) taşınacak.
+3. **Font-boyutu/metin-yoğunluğu etkisiyle blok-analizi arasındaki etkileşim** (yukarıdaki
+   "karşılaşılan problem") bu pass'te çözülmedi, sonraki adıma not düşüldü.
+
+### Bir sonraki adım
+
+Kullanıcı talimatına göre bir sonraki modüle (**Skew**) geçiliyor.
+
+---
+
+## Modül: SKEW
+
+**Tarih:** 17 Ağustos 2026
+
+### Problem
+
+Belgenin (kamera açısından kaynaklanan) yatay eksene göre açısal sapmasını (θ) tahmin
+etmek.
+
+### Araştırılan yöntemler
+
+`research/literature_review.md` Bölüm 2.4: Projection Profile, Hough Transform, PCA,
+Connected Component Analysis, Nearest Neighbor, Cross Correlation, Radon Transform, CNN.
+Hough ve Projection Profile literatürde en sık kullanılan klasik yöntem aileleri olarak
+öne çıkıyor.
+
+### Seçtiğimiz yöntem
+
+**Hough Transform** ve **Projection Profile**, birbirinden bağımsız iki yöntem olarak
+uygulanıp karşılaştırıldı. Yöntemlerin nasıl çalıştığı: `src/skew/README.md`.
+
+### Neden bu yöntemi seçtik?
+
+initial_research.md'nin doğrudan önerdiği baseline bu ikisiydi ("Skew için CNN kullanmak
+başlangıçta zorunlu değil"). İki farklı prensip (kenar/doğru tespiti vs. satır profili)
+kullanan yöntemleri karşılaştırmak, hangisinin bu proje bağlamında (sentetik kimlik
+belgesi benzeri görüntüler) daha güvenilir olduğunu görmemizi sağladı.
+
+### Kullanılan parametreler
+
+| Parametre | Değer |
+|---|---|
+| Hough — Canny eşikleri | 50 / 150 |
+| Hough — oy eşiği (threshold) | 150 |
+| Hough — kabul edilen max açı sapması | ±30° (bu aralık dışındaki doğrular gürültü sayılıp elendi) |
+| Projection Profile — aday açı aralığı | −15° … +15°, 0.5° adımlarla (61 aday) |
+| Projection Profile — koyu piksel eşiği | gri değer < 180 |
+| Enjekte edilen açılar (yer gerçeği) | −12, −8, −5, −2, −1, 0, 1, 2, 5, 8, 12 derece |
+
+### Yapılan deney
+
+`experiments/skew/generate_skew_documents.py`: 12 sentetik belge, 11 farklı bilinen açıyla
+döndürüldü (132 görüntü). Döndürme `cv2.getRotationMatrix2D` ile yapıldı; ön testte iki
+yöntemin de bu döndürmeyi **karşıt işaretle** ölçtüğü tespit edildi (deneysel doğrulama),
+bu yüzden yer gerçeği açı `-applied_angle` olarak tanımlandı (bkz. kod docstring'leri).
+
+`experiments/skew/run_experiment.py`: her görüntü için her iki yöntemle açı tahmini
+yapıldı, gerçek açıyla karşılaştırılıp mutlak hata (MAE) hesaplandı; hata ayrıca açı
+büyüklüğüne (0° / küçük 1-2° / orta 5-8° / büyük 12°) göre kırılımlandı.
+
+### Deney sonucu
+
+**Genel MAE:**
+
+| Yöntem | Ortalama Mutlak Hata | Std |
+|---|---|---|
+| Hough Transform | 0.82° | 2.01 |
+| Projection Profile | 1.82° | 5.10 |
+
+Genel ortalamaya bakıldığında Hough daha iyi görünüyor, ama bu ortalama **yanıltıcı** —
+altta yatan dağılım çok farklı bir hikâye anlatıyor:
+
+**Projection Profile — çarpıcı bulgu:** 12 belgenin **10'unda MAE = 0.0000°** (yani
+mükemmel tahmin), ama **2 belgede (doc_001, doc_002) MAE ≈ 9.5-12.3°** ile ciddi biçimde
+başarısız oldu. Bu iki belgenin ortak özelliği: **en küçük font (14px) + en az paragraf
+sayısı (2)** — yani ızgaradaki en az metin satırına sahip belgeler. Başarısız
+tahminlerin **tamamı**, aday açı aralığının sınırına (**−15°**) kilitlenmiş durumda
+(`results/skew/plots/prediction_vs_ground_truth.png`'de y=−15 çizgisinde dizilen turuncu
+X'ler). Yorum: yeterince az satır olduğunda, satır-profili varyans kriterinin net bir
+tepe noktası oluşturamadığı, bunun yerine arama aralığının kenarına kaçtığı görülüyor.
+Bu KESİN olarak kanıtlanmış bir neden-sonuç açıklaması değil, veriyle tutarlı bir
+gözlem/hipotezdir.
+
+**Hough Transform — daha istikrarlı ama açı büyüdükçe kademeli olarak kötüleşiyor:**
+
+| Açı grubu | Hough MAE | Projection MAE |
+|---|---|---|
+| 0° (referans) | 0.21° | 2.50° * |
+| Küçük (1-2°) | 0.36° | 2.50° * |
+| Orta (5-8°) | 0.95° | 1.88° * |
+| Büyük (12°) | 1.79° | 0.00° |
+
+(*Projection Profile'daki yüksek değerler yukarıda açıklanan 2 belgenin aykırı
+değerlerinden kaynaklanıyor — bu satırlar tüm belgeler için "tipik" performansı temsil
+etmiyor.)
+
+Hough'un hatası açı büyüdükçe düzgün biçimde artıyor (0.21° → 1.79°) — bu, `max_angle_deviation`
+filtresi ve doğru tespitinin büyük açılarda zorlaşmasıyla tutarlı, beklenen bir davranış.
+
+Grafikler: `results/skew/plots/prediction_vs_ground_truth.png`,
+`error_by_angle_bucket.png`.
+
+### Karşılaşılan problemler
+
+- **İşaret (sign) uyuşmazlığı:** İlk testte, uygulanan döndürme açısı ile her iki
+  yöntemin ölçtüğü açının ZIT işaretli olduğu görüldü. Kısa bir doğrulama testiyle
+  (`true_angle` bilinen küçük bir döndürme uygulanıp tahminlerle karşılaştırılarak)
+  bu netleştirildi ve yer gerçeği tanımı buna göre düzeltildi (bkz. yukarıdaki not).
+- **Projection Profile'ın az-metinli belgelerde arama sınırına kilitlenmesi** (yukarıda
+  detaylandırıldı) — bu deneyin en önemli, beklenmedik bulgusu.
+- Deney, 132 görüntü × 61 aday açı (Projection Profile için) nedeniyle ~60 saniye sürdü;
+  büyük ölçekli veri setlerinde bu yöntemin performans/hız optimizasyonu (örn. kaba
+  arama + ince arama iki aşamalı strateji) gerekebilir — bu pass'te yapılmadı.
+
+### Aldığımız kararlar
+
+1. **Tek bir yöntem yerine ikisinin birlikte tutulmasına karar verildi**, ama farklı
+   gerekçeyle: Hough daha istikrarlı/güvenilir bir "varsayılan", Projection Profile ise
+   yeterli metin yoğunluğu olduğunda daha hassas — iki yöntem arasındaki büyük anlaşmazlık
+   (örn. biri 0°, diğeri 15° derse) ileride bir "güvenilirlik/şüphe" sinyali olarak
+   kullanılabilir (bu, Blur modülündeki "iki yöntem birbirini doğrular" yaklaşımıyla
+   tutarlı bir tasarım deseni).
+2. **Projection Profile'ın metin yoğunluğuna duyarlılığı, ham haliyle production'a hazır
+   olmadığını gösteriyor** — en azından "yeterli metin satırı var mı?" kontrolü (örn.
+   minimum satır sayısı eşiği) olmadan güvenilmemeli. Bu, bir sonraki adıma not düşüldü.
+3. **Arama sınırına kilitlenme (boundary lock-in) durumunu ayrıca bir "başarısızlık
+   bayrağı" olarak işaretlemeye karar verildi** (örn. tahmin edilen açı, arama aralığının
+   sınırına çok yakınsa güvenilirlik düşük sayılmalı) — henüz kodlanmadı, gelecek adım.
+
+### Bir sonraki adım
+
+Kullanıcı talimatına göre bir sonraki modüle (**Occlusion**) geçiliyor.
+
+---
+
+## Modül: OCCLUSION
+
+**Tarih:** 17 Ağustos 2026
+
+### Problem
+
+Belgenin bir kısmının (parmak, el, sticker, nesne) kapatılmasını tespit etmek — özellikle
+kimlik belgelerinde kritik alanların (ID number gibi) kapanma durumunu.
+
+### Araştırılan yöntemler
+
+`research/literature_review.md` Bölüm 2.5: OCR confidence (yardımcı sinyal, tek başına
+yeterli değil — blur/glare/darkness/skew de confidence'ı düşürebilir), object detection
+(YOLO), segmentation (occlusion mask + area + location + region importance). Belgeye özel,
+geniş kabul görmüş bir occlusion veri seti/yöntemi bu oturumda bulunamadı (bkz.
+`research/literature_review.md`, Bölüm 2.5 — "en az araştırılmış problem").
+
+### Seçtiğimiz yöntem
+
+**OCR + "beklenen alan deseni/uzunluğu" karşılaştırması.** "Belge No" alanı kırpılıp OCR
+edildi; iki tamamlayıcı sinyal hesaplandı: (1) **length_ratio** — OCR'ın okuduğu karakter
+sayısının beklenen uzunluğa (10 hane) oranı, (2) **mean_confidence** — Tesseract'ın kendi
+güven skoru. İkisi birleştirilerek bir **occlusion_suspicion_score** (0-100) üretildi.
+Detaylı açıklama: `src/occlusion/README.md`.
+
+### Neden bu yöntemi seçtik?
+
+Literatürün önerdiği baseline (OCR + layout) buydu; ayrıca initial_research.md'nin
+"AYŞENUR K______" örneğini doğrudan somutlaştırıyor. "Sadece OCR confidence'a güvenme"
+uyarısını ciddiye alarak, occlusion'a daha özgü olan **uzunluk/format sapması** sinyalini
+de ayrıca hesaplayıp iki sinyali karşılaştırdık.
+
+### Kullanılan parametreler
+
+| Parametre | Değer |
+|---|---|
+| Hedef alan | "Belge No" (10 haneli sayı) |
+| OCR motoru | Tesseract 5.3 (+ `tesseract-ocr-tur` dil paketi kuruldu, bu alan için `eng` + rakam whitelist kullanıldı) |
+| Tesseract PSM modu | 7 (tek satır metin) |
+| Karakter whitelist | yalnızca `0123456789` |
+| Crop padding / upscale | 6px padding, 3x büyütme (küçük metin OCR doğruluğunu artırmak için) |
+| Enjekte edilen kapanma oranları | %0 / %20 / %40 / %60 / %80 / %100 (alanın sağından sola kapatılarak) |
+
+### Yapılan deney
+
+`experiments/occlusion/generate_occlusion_documents.py`: aynı 12 belge ızgarasında,
+"Belge No" alanı sağdan sola artan oranda gri bir dikdörtgenle ("parmak" benzetmesi)
+kapatıldı (72 görüntü).
+
+`experiments/occlusion/run_experiment.py`: her görüntüde alan OCR edildi,
+`length_ratio`, `mean_confidence` ve birleşik `occlusion_suspicion_score` hesaplandı;
+monotonluk (Spearman) analiz edildi.
+
+### Deney sonucu
+
+| Metrik | Ortalama Spearman rho (12 belge) | Coverage=0 ort. | Coverage=1.0 ort. |
+|---|---|---|---|
+| length_ratio | −0.9757 | 1.000 | 0.000 |
+| mean_confidence | −0.8525 | 91.7 | 0.0 |
+| occlusion_suspicion_score (birleşik) | **+0.9445** * | 3.8 (düşük şüphe) | 100.0 (tam şüphe) |
+
+(*İşaret farkı kasıtlı ve doğru: `occlusion_suspicion_score` tanım gereği kapanma arttıkça
+ARTAR — diğer metrikler "iyilik" ölçüp azalırken, bu metrik "kötülük/şüphe" ölçüyor. Bkz.
+"Karşılaşılan problemler".)
+
+Üç metrik de güçlü ve tutarlı monoton davranış gösterdi — bu modül, **Glare modülünün
+aksine, baseline yöntemin beklendiği gibi çalıştığı** bir modül oldu. `length_ratio` en
+temiz/düzgün eğriyi verdi (`results/occlusion/plots/metrics_vs_coverage.png`, sol panel);
+`mean_confidence` daha gürültülü ama yine de güçlü bir sinyal verdi (özellikle %0→%20
+kapanma arasında çok keskin bir düşüş var — OCR, kısmi kapanmaya karşı oldukça "kırılgan"
+görünüyor). Birleşik `occlusion_suspicion_score`, ikisini ortalayarak daha yumuşak/dengeli
+bir eğri üretti.
+
+### Karşılaşılan problemler
+
+- **Yön (convention) tutarsızlığı fark edildi:** `occlusion_suspicion_score`, projedeki
+  diğer modüllerin (blur, glare, darkness) tersine, YÜKSEK değer = KÖTÜ kalite anlamına
+  geliyor (bir "şüphe skoru" olduğu için doğal bu yönde). Bu, kod yazılırken fark edilip
+  `src/occlusion/metrics.py` docstring'ine açıkça not düşüldü — ilk yazımda docstring
+  yanlışlıkla ters yönü belirtiyordu, bu düzeltildi.
+- `mean_confidence` metriği, %20-%60 kapanma aralığında beklenenden daha gürültülü/az
+  monoton davrandı (bazı belgelerde ara seviyelerde confidence geçici olarak yükseliyor) —
+  muhtemelen Tesseract'ın kısmi/bozuk rakamları bazen yanlış ama "kendinden emin" biçimde
+  tanıması nedeniyle (örn. kapatılmış bir "8"i "3" olarak yüksek güvenle okuması).
+
+### Aldığımız kararlar
+
+1. **Bu yöntem yalnızca yapılandırılmış, formatı bilinen alanlar için uygulanabilir**
+   olarak sınırlandırıldı (örn. "Belge No"); serbest metin (paragraflar) için
+   uygulanmadı — bkz. `src/occlusion/README.md`, "Sınırlama". Serbest metin occlusion
+   tespiti, ileride nesne tespiti/segmentasyon gerektiren ayrı bir alt problem olarak
+   bırakıldı.
+2. **Skor yönü (convention) tutarsızlığı, Aşama 5'e (ML skor füzyonu) not olarak
+   bırakıldı** — o aşamada tüm alt-skorlar (blur, glare, darkness, skew, occlusion) TEK
+   bir ortak yöne (örn. hepsi "yüksek = iyi kalite") normalize edilmeli.
+3. **length_ratio ve mean_confidence'ın HER İKİSİNİN de tutulmasına karar verildi**
+   (yalnızca birini seçmek yerine) — ikisi farklı hata modlarını yakalıyor (biri
+   "karakter kayboldu mu", diğeri "OCR ne kadar emin") ve literatürün "yalnızca OCR
+   confidence'a güvenme" uyarısıyla tutarlı.
+
+### Bir sonraki adım
+
+Beş modülün tamamı (Blur, Glare, Darkness, Skew, Occlusion) baseline seviyesinde
+tamamlandı. Kullanıcı talimatına göre nihai rapor bu aşamada YAZILMAYACAK (yalnızca tüm
+modüller ve `project_notes.md` bittiğinde, ayrı bir adımda istenecek). Bir sonraki mantıklı
+adım — henüz başlanmadı — **Aşama 5: Feature Fusion / ML Skorlama** olacaktır; bu aşamada
+ele alınması gereken, bu modüllerden çıkan açık noktalar:
+- Tüm alt-skorların ortak bir yöne (yüksek=iyi) normalize edilmesi (bkz. Occlusion kararı 2).
+- Glare modülünün mevcut haliyle kullanılamaz olması — ya düzeltilmeli ya da geçici
+  olarak füzyon dışı bırakılmalı.
+- Darkness modülünün blok-bazlı analizinin font boyutuyla etkileşimi.
+- Skew modülünün Projection Profile bileşeninin az-metinli belgelerdeki başarısızlığı.
+- Blur modülünün font boyutu duyarlılığı.
+- Tüm bu modüllerin GERÇEK (sentetik olmayan) veri üzerinde yeniden doğrulanması.

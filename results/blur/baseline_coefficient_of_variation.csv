@@ -1,0 +1,4 @@
+metric,coefficient_of_variation_across_docs
+laplacian_variance,0.27230962026555317
+tenengrad,0.3213190589188604
+gradient_magnitude_mean,0.2757725184035785

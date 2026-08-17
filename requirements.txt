@@ -1,0 +1,20 @@
+# Document Quality Scoring — Python bağımlılıkları
+#
+# Bu dosya aşama aşama büyütülecektir: her yeni modül (glare, darkness, skew,
+# occlusion, scoring) eklendiğinde gerekli paketler buraya eklenir.
+
+# --- Blur modülü (tamamlandı) ---
+opencv-python-headless>=4.9
+numpy>=1.26
+pandas>=2.2
+matplotlib>=3.8
+scipy>=1.12
+Pillow>=10.2
+
+# --- Occlusion modülü (tamamlandı) ---
+pytesseract>=0.3.10
+# Not: sistemde tesseract-ocr + tesseract-ocr-tur paketlerinin kurulu olması gerekir
+# (apt-get install tesseract-ocr tesseract-ocr-tur)
+
+# --- İleri fazlarda eklenecek (henüz kullanılmıyor) ---
+# scikit-learn      # ML skor füzyonu (Aşama 5) için

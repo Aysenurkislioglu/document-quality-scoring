@@ -1,0 +1,13 @@
+doc_id,naive_glare_ratio_spearman_rho,naive_glare_ratio_pvalue,oracle_text_washout_ratio_spearman_rho,oracle_text_washout_ratio_pvalue
+doc_001,1.0,0.0,1.0,0.0
+doc_002,1.0,0.0,1.0,0.0
+doc_003,1.0,0.0,1.0,0.0
+doc_004,1.0,0.0,1.0,0.0
+doc_005,1.0,0.0,1.0,0.0
+doc_006,1.0,0.0,1.0,0.0
+doc_007,1.0,0.0,1.0,0.0
+doc_008,1.0,0.0,1.0,0.0
+doc_009,1.0,0.0,1.0,0.0
+doc_010,1.0,0.0,1.0,0.0
+doc_011,1.0,0.0,1.0,0.0
+doc_012,1.0,0.0,1.0,0.0
