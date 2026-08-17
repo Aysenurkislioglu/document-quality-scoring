@@ -96,6 +96,22 @@ dynamic-range analizleri ve grafikler).
 Her modülün yöntemi nasıl çalıştığına dair anlaşılır açıklama, ilgili `src/<modül>/README.md`
 dosyasındadır.
 
+## Web arayüzü (basit demo)
+
+Bir belge fotoğrafı yükleyip birleşik Document Quality Score (0-100) görmek için:
+
+```bash
+python3 app.py
+# tarayıcıda http://127.0.0.1:5000 aç
+```
+
+Bu arayüz `src/scoring/fusion.py` üzerinden blur/darkness/skew (+ isteğe bağlı glare)
+alt-skorlarını birleştirir. **Önemli:** bu skor gerçek etiketli veriyle kalibre edilmiş
+bir ML modelinin çıktısı değildir — mevcut modüllerin ham metriklerinden türetilen
+geçici/sezgisel bir özet skordur (detay için `src/scoring/fusion.py` docstring'i ve
+"Aşama 5" notları). Occlusion modülü, yalnızca önceden bilinen alan şablonları
+gerektirdiğinden bu genel yüklemeye dahil değildir.
+
 ## Durum
 
 | Modül | Durum | Not |

@@ -16,5 +16,8 @@ pytesseract>=0.3.10
 # Not: sistemde tesseract-ocr + tesseract-ocr-tur paketlerinin kurulu olması gerekir
 # (apt-get install tesseract-ocr tesseract-ocr-tur)
 
+# --- Web arayüzü (Aşama 5 — basit skorlayıcı demo) ---
+Flask>=3.0
+
 # --- İleri fazlarda eklenecek (henüz kullanılmıyor) ---
 # scikit-learn      # ML skor füzyonu (Aşama 5) için
