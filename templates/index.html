@@ -83,6 +83,13 @@
     .module-score { font-size: 1.3rem; font-weight: 700; min-width: 60px; text-align: right; }
     .note { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
     footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 32px; }
+    details { margin-top: 6px; }
+    summary { cursor: pointer; color: #2d6ae0; font-size: 0.85rem; font-weight: 600; }
+    .method-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+    .method-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    .method-table td.value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .method-table tr.used td:first-child::after { content: " ✅ (füzyonda kullanılan)"; color: var(--good); font-weight: 400; font-size: 0.75rem; }
+    .method-note { color: var(--muted); font-size: 0.78rem; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -147,6 +154,20 @@
                 {% if key == "glare" and not result.glare_included %}
                   <div class="module-raw">Genel ortalamaya dahil edilmedi.</div>
                 {% endif %}
+
+                {% set mc = result.method_comparison[key] %}
+                <details>
+                  <summary>Bu modülde yöntemler nasıl karşılaştırılıyor?</summary>
+                  <table class="method-table">
+                    {% for method_name, method_value in mc.methods.items() %}
+                      <tr {% if method_name == mc.used_in_overall %}class="used"{% endif %}>
+                        <td>{{ method_name }}</td>
+                        <td class="value">{{ method_value }}</td>
+                      </tr>
+                    {% endfor %}
+                  </table>
+                  <p class="method-note">Füzyonda kullanılan: <strong>{{ mc.used_in_overall }}</strong>. {{ mc.note }}</p>
+                </details>
               </div>
               <div class="module-score">{{ "%.1f"|format(comp.score) }}</div>
             </div>

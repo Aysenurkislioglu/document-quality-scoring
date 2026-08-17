@@ -28,8 +28,8 @@ from typing import Dict
 
 import numpy as np
 
-from src.blur.metrics import laplacian_variance
-from src.darkness.metrics import darkest_block_mean
+from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
+from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean
 from src.glare.metrics import glare_ratio, glare_score
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
 
@@ -144,4 +144,75 @@ def compute_document_quality_score(
             "çıktısı değildir; literatür + sentetik deneylerden esinlenen "
             "geçici/sezgisel eşiklerle üretilmiştir (bkz. project_notes.md)."
         ),
+    }
+
+
+def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
+    """
+    Her modülün BİRDEN FAZLA yöntemi varsa, hepsini aynı görüntü üzerinde
+    hesaplayıp yan yana döndürür — "yöntem seçimi sonucu nasıl etkiliyor"
+    sorusuna, tek bir fotoğraf üzerinden görsel/sayısal cevap vermek içindir.
+
+    Nihai skora (compute_document_quality_score) etkisi YOKTUR; yalnızca
+    karşılaştırma/gösterim amaçlıdır. Yöntemlerin genel (çok belge üzerinde,
+    bilinen bozulma şiddetiyle) nasıl karşılaştırıldığına dair asıl kanıt
+    results/<modül>/scores.csv ve results/<modül>/plots/ altındadır — bu
+    fonksiyon yalnızca TEK bir yüklenen görüntü için hızlı bir özet sağlar.
+    """
+    blur_all = compute_all_blur_metrics(image)
+    darkness_all = compute_all_darkness_metrics(image)
+
+    hough_angle = estimate_skew_hough(image)
+    projection_angle = estimate_skew_projection_profile(image)
+
+    return {
+        "blur": {
+            "methods": {
+                "Laplacian Variance": blur_all["laplacian_variance"],
+                "Tenengrad": blur_all["tenengrad"],
+                "Gradient Magnitude (ortalama)": blur_all["gradient_magnitude_mean"],
+            },
+            "used_in_overall": "Laplacian Variance",
+            "note": "Üçü de aynı yönde okunur: yüksek değer = daha keskin/net.",
+        },
+        "darkness": {
+            "methods": {
+                "Global ortalama parlaklık": darkness_all["mean"],
+                "Global medyan parlaklık": darkness_all["median"],
+                "P5 (en karanlık %5)": darkness_all["p5"],
+                "P25": darkness_all["p25"],
+                "En karanlık blok ortalaması": darkness_all["darkest_block_mean"],
+                "Ortalama yerel kontrast": darkness_all["mean_local_contrast"],
+            },
+            "used_in_overall": "En karanlık blok ortalaması",
+            "note": (
+                "Global ortalama, belgenin küçük bir bölgesindeki lokal "
+                "karanlığı (örn. gölge düşmüş tek bir köşe) çoğu zaman "
+                "gizler; en karanlık blok bunu yakalar — bu yüzden füzyonda "
+                "o kullanılıyor. Aradaki farkı görmek için: bu iki değer "
+                "birbirine yakınsa karanlık YAYGIN, uzaksa karanlık "
+                "LOKALİZE demektir."
+            ),
+        },
+        "skew": {
+            "methods": {
+                "Hough Transform": hough_angle,
+                "Projection Profile": projection_angle,
+            },
+            "used_in_overall": "Hough Transform (bulamazsa Projection Profile'a düşer)",
+            "note": (
+                "results/skew/scores.csv deneyinde Hough daha düşük ortalama "
+                "hata verdi (MAE≈0.9°) — Projection Profile az metinli "
+                "belgelerde daha çok şaşıyor (MAE≈1.8°). İki değer birbirinden "
+                "çok uzaksa, bu görüntüde yöntemlerden biri muhtemelen yanılıyor."
+            ),
+        },
+        "glare": {
+            "methods": {"HSV + Connected Components (glare_ratio)": glare_ratio(image)},
+            "used_in_overall": "(varsayılan: hiçbiri, isteğe bağlı dahil edilir)",
+            "note": (
+                "Bu modülde şu an tek yöntem var, karşılaştırma yok. "
+                "Kendisi de project_notes.md'de yetersiz bulunmuş durumda."
+            ),
+        },
     }

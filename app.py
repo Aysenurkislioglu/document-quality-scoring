@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from flask import Flask, render_template, request
 
-from src.scoring.fusion import compute_document_quality_score
+from src.scoring.fusion import compare_module_methods, compute_document_quality_score
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB üst sınır
@@ -62,6 +62,12 @@ def index():
                 result = {"error": "Görüntü okunamadı. Desteklenen formatlar: jpg, png, bmp."}
             else:
                 scored = compute_document_quality_score(image_bgr, include_glare=include_glare)
+                method_comparison = compare_module_methods(image_bgr)
+                for module_data in method_comparison.values():
+                    module_data["methods"] = {
+                        name: ("tespit edilemedi" if value is None else f"{value:.3f}")
+                        for name, value in module_data["methods"].items()
+                    }
                 verdict_class, verdict_text = _verdict(scored["overall_score"])
                 result = {
                     "overall_score": scored["overall_score"],
@@ -71,6 +77,7 @@ def index():
                     "glare_included": scored["glare_included_in_overall"],
                     "calibration_note": scored["calibration_note"],
                     "occlusion_note": scored["occlusion_note"],
+                    "method_comparison": method_comparison,
                 }
                 b64 = base64.b64encode(raw_bytes).decode("ascii")
                 mime = file.mimetype or "image/jpeg"
