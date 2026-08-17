@@ -20,6 +20,7 @@ Her sentetik belge:
 from __future__ import annotations
 
 import csv
+import os
 import random
 import textwrap
 from pathlib import Path
@@ -29,8 +30,40 @@ from PIL import Image, ImageDraw, ImageFont
 RANDOM_SEED = 42
 PAGE_SIZE = (850, 1100)  # yaklaşık A4 oranı, 100 DPI civarı
 MARGIN = 70
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _find_dejavu_font(bold: bool) -> str:
+    """DejaVuSans fontunu işletim sistemine göre bulur.
+
+    Sabit bir Linux yolu (/usr/share/fonts/...) yerine önce yaygın sistem
+    konumlarını dener, bulamazsa matplotlib'in kendi paketiyle taşıdığı
+    DejaVuSans kopyasına düşer (matplotlib zaten requirements.txt'de var,
+    bu yüzden macOS/Windows dahil her ortamda çalışır).
+    """
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    candidates = [
+        f"/usr/share/fonts/truetype/dejavu/{name}",  # Linux (Debian/Ubuntu)
+        f"/usr/share/fonts/dejavu/{name}",  # Linux (Fedora/RHEL)
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    import matplotlib
+
+    mpl_path = os.path.join(
+        os.path.dirname(matplotlib.__file__), "mpl-data", "fonts", "ttf", name
+    )
+    if os.path.exists(mpl_path):
+        return mpl_path
+
+    raise FileNotFoundError(
+        f"{name} bulunamadı. matplotlib kurulu mu? (pip install -r requirements.txt)"
+    )
+
+
+FONT_PATH = _find_dejavu_font(bold=False)
+FONT_PATH_BOLD = _find_dejavu_font(bold=True)
 
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "synthetic" / "blur" / "originals"
 
