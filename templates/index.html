@@ -1,185 +1,381 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8">
-  <title>Document Quality Scoring</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
+<meta charset="utf-8">
+<title>Document Quality Scoring</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg-0: #eef1f8;
+    --bg-1: #e3e8f5;
+    --card: #ffffff;
+    --card-border: #e4e7ef;
+    --text: #14161f;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-soft: #eef0fe;
+    --good: #16a34a;
+    --good-soft: #e9f9ef;
+    --warn: #d97706;
+    --warn-soft: #fdf3e3;
+    --bad: #dc2626;
+    --bad-soft: #fdecec;
+    --shadow: 0 1px 2px rgba(20,22,31,.04), 0 8px 24px -12px rgba(20,22,31,.12);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #f5f6f8;
-      --card: #ffffff;
-      --border: #e2e4e9;
-      --text: #1c1e21;
-      --muted: #6b7280;
-      --good: #1f8a4c;
-      --warn: #b5860a;
-      --bad: #c0392b;
+      --bg-0: #0d0e13;
+      --bg-1: #14161f;
+      --card: #191b24;
+      --card-border: #2a2d3a;
+      --text: #eef0f6;
+      --muted: #9aa1b1;
+      --accent: #818cf8;
+      --accent-soft: #23253a;
+      --good: #34d399;
+      --good-soft: #10261d;
+      --warn: #fbbf24;
+      --warn-soft: #2b2210;
+      --bad: #f87171;
+      --bad-soft: #2b1414;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -14px rgba(0,0,0,.6);
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
-    h1 { font-size: 1.6rem; margin-bottom: 4px; }
-    .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 24px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 20px;
-    }
-    .banner {
-      background: #fff8e1;
-      border: 1px solid #f0d98c;
-      border-radius: 8px;
-      padding: 12px 16px;
-      font-size: 0.9rem;
-      margin-bottom: 20px;
-    }
-    label { font-weight: 600; display: block; margin-bottom: 8px; }
-    input[type=file] { display: block; margin-bottom: 16px; }
-    .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-weight: 400; }
-    .checkbox-row label { font-weight: 400; margin: 0; }
-    .hint { color: var(--muted); font-size: 0.82rem; margin-top: -10px; margin-bottom: 16px; }
-    button {
-      background: #2d6ae0;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 6px;
-      font-size: 0.95rem;
-      cursor: pointer;
-    }
-    button:hover { background: #2557bd; }
-    .error { color: var(--bad); font-weight: 600; }
-    img.preview { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px; }
-    .overall {
-      text-align: center;
-      padding: 24px;
-    }
-    .overall .score {
-      font-size: 3rem;
-      font-weight: 700;
-      margin: 0;
-    }
-    .overall .score.good { color: var(--good); }
-    .overall .score.warn { color: var(--warn); }
-    .overall .score.bad { color: var(--bad); }
-    .overall .verdict { font-size: 1.1rem; font-weight: 600; margin-top: 4px; }
-    .module-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .module-row:last-child { border-bottom: none; }
-    .module-name { font-weight: 600; }
-    .module-hint, .module-raw { color: var(--muted); font-size: 0.82rem; }
-    .module-score { font-size: 1.3rem; font-weight: 700; min-width: 60px; text-align: right; }
-    .note { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
-    footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 32px; }
-    details { margin-top: 6px; }
-    summary { cursor: pointer; color: #2d6ae0; font-size: 0.85rem; font-weight: 600; }
-    .method-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
-    .method-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-    .method-table td.value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-    .method-table tr.used td:first-child::after { content: " ✅ (füzyonda kullanılan)"; color: var(--good); font-weight: 400; font-size: 0.75rem; }
-    .method-note { color: var(--muted); font-size: 0.78rem; margin-top: 8px; }
-  </style>
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, var(--accent-soft), transparent),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1));
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 72px; }
+
+  .hero { text-align: center; margin-bottom: 32px; }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 0.75rem; font-weight: 700; letter-spacing: .04em;
+    padding: 6px 14px; border-radius: 999px; text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-size: 2.1rem; font-weight: 800; margin: 0 0 10px;
+    letter-spacing: -0.02em;
+  }
+  .hero p { color: var(--muted); font-size: 1rem; max-width: 520px; margin: 0 auto; line-height: 1.55; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: rise .5s ease forwards;
+  }
+  .card:nth-of-type(2) { animation-delay: .06s; }
+  .card:nth-of-type(3) { animation-delay: .12s; }
+  .card:nth-of-type(4) { animation-delay: .18s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .banner {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+    border-radius: 12px; padding: 14px 16px; font-size: 0.88rem; line-height: 1.5;
+    margin-bottom: 24px; color: var(--text);
+  }
+  .banner .icon { font-size: 1.1rem; flex-shrink: 0; }
+
+  form label.field-label { font-weight: 700; display: block; margin-bottom: 12px; font-size: 0.95rem; }
+
+  .dropzone {
+    border: 2px dashed var(--card-border);
+    border-radius: 14px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+  }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone .dz-icon { font-size: 2rem; margin-bottom: 8px; }
+  .dropzone .dz-text { font-weight: 600; }
+  .dropzone .dz-hint { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+  .dropzone .dz-filename { color: var(--accent); font-weight: 600; margin-top: 10px; font-size: 0.88rem; word-break: break-all; }
+  input[type=file] { display: none; }
+
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 20px; padding: 14px 16px; background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+    border-radius: 12px;
+  }
+  .toggle-row .label-block { font-size: 0.86rem; }
+  .toggle-row .label-block strong { display: block; font-size: 0.92rem; margin-bottom: 2px; }
+  .toggle-row .label-block span { color: var(--muted); }
+  .switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: #c8ccd8; border-radius: 999px; cursor: pointer; transition: .15s;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+    background: white; border-radius: 50%; transition: .15s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(18px); }
+
+  button.submit-btn {
+    width: 100%; margin-top: 20px;
+    background: var(--accent); color: white; border: none;
+    padding: 14px 20px; border-radius: 12px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: transform .12s, opacity .12s;
+  }
+  button.submit-btn:hover { opacity: .92; transform: translateY(-1px); }
+  button.submit-btn:active { transform: translateY(0); }
+
+  .error-card { color: var(--bad); font-weight: 600; }
+
+  img.preview {
+    width: 100%; display: block; border-radius: 12px; max-height: 380px; object-fit: contain;
+    background: repeating-conic-gradient(#0000 0 90deg, #00000008 0 180deg) 0 0/20px 20px;
+  }
+
+  .overall-card { text-align: center; padding: 36px 24px; }
+  .gauge-wrap { position: relative; width: 180px; height: 180px; margin: 0 auto 16px; }
+  .gauge-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .gauge-track { fill: none; stroke: var(--card-border); stroke-width: 12; }
+  .gauge-fill { fill: none; stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset 1s cubic-bezier(.4,0,.2,1); }
+  .gauge-fill.good { stroke: var(--good); }
+  .gauge-fill.warn { stroke: var(--warn); }
+  .gauge-fill.bad { stroke: var(--bad); }
+  .gauge-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .gauge-center .num { font-size: 2.3rem; font-weight: 800; letter-spacing: -.02em; }
+  .gauge-center .denom { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+  .verdict-pill {
+    display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.95rem;
+    padding: 6px 16px; border-radius: 999px;
+  }
+  .verdict-pill.good { background: var(--good-soft); color: var(--good); }
+  .verdict-pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .verdict-pill.bad { background: var(--bad-soft); color: var(--bad); }
+
+  .section-title { font-size: 1.05rem; font-weight: 800; margin: 0 0 16px; }
+
+  .module-row { padding: 16px 0; border-bottom: 1px solid var(--card-border); }
+  .module-row:last-child { border-bottom: none; }
+  .module-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 10px; }
+  .module-name { font-weight: 700; font-size: 0.95rem; }
+  .module-hint { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+  .module-score-num { font-size: 1.5rem; font-weight: 800; min-width: 56px; text-align: right; }
+  .module-score-num.good { color: var(--good); }
+  .module-score-num.warn { color: var(--warn); }
+  .module-score-num.bad { color: var(--bad); }
+
+  .bar-track { height: 8px; border-radius: 999px; background: var(--card-border); overflow: hidden; margin-bottom: 8px; }
+  .bar-fill { height: 100%; border-radius: 999px; transition: width 1s cubic-bezier(.4,0,.2,1); }
+  .bar-fill.good { background: var(--good); }
+  .bar-fill.warn { background: var(--warn); }
+  .bar-fill.bad { background: var(--bad); }
+
+  .module-raw { color: var(--muted); font-size: 0.78rem; }
+  .module-flag { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
+  details { margin-top: 10px; }
+  summary {
+    cursor: pointer; color: var(--accent); font-size: 0.82rem; font-weight: 700;
+    list-style: none; display: flex; align-items: center; gap: 4px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸"; transition: transform .15s; font-size: 0.7rem; }
+  details[open] summary::before { transform: rotate(90deg); }
+
+  .method-table { width: 100%; margin-top: 12px; font-size: 0.82rem; }
+  .method-item { padding: 8px 0; }
+  .method-item .method-head { display: flex; justify-content: space-between; margin-bottom: 5px; }
+  .method-item .method-name { font-weight: 600; }
+  .method-item.used .method-name::after {
+    content: " ✅ füzyonda kullanılan"; color: var(--good); font-weight: 500; font-size: 0.72rem;
+  }
+  .method-item .method-value { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+  .mini-bar-track { height: 5px; border-radius: 999px; background: var(--card-border); overflow: hidden; }
+  .mini-bar-fill { height: 100%; border-radius: 999px; background: var(--accent); opacity: .55; }
+  .method-item.used .mini-bar-fill { opacity: 1; }
+  .method-note { color: var(--muted); font-size: 0.78rem; margin-top: 10px; line-height: 1.5; }
+
+  .notes { color: var(--muted); font-size: 0.78rem; text-align: center; line-height: 1.6; margin-top: 8px; }
+  footer { color: var(--muted); font-size: 0.75rem; text-align: center; margin-top: 40px; }
+</style>
 </head>
 <body>
   <div class="wrap">
-    <h1>📄 Document Quality Scoring</h1>
-    <p class="subtitle">
-      Belge fotoğrafındaki kalite problemlerini (blur, darkness, skew — glare
-      isteğe bağlı) ölçüp açıklanabilir bir kalite skoru üretir.
-    </p>
+    <div class="hero">
+      <span class="badge">📄 Document Quality Scoring</span>
+      <h1>Belgeniz ne kadar okunabilir?</h1>
+      <p>Bir belge fotoğrafı yükleyin; blur, aydınlatma ve eğiklik gibi kalite
+        problemlerini ölçüp açıklanabilir bir skor üretelim.</p>
+    </div>
 
     <div class="banner">
-      ⚠️ Bu, etiketli gerçek veriyle kalibre edilmiş bir ML modeli değildir.
-      Skorlar, mevcut modüllerin ham metriklerinden türetilen
-      <strong>geçici/sezgisel</strong> bir özet niteliğindedir — kesin
-      "doğruluk oranı" olarak okunmamalıdır.
+      <span class="icon">⚠️</span>
+      <span>Bu, etiketli gerçek veriyle kalibre edilmiş bir ML modeli değildir.
+        Skorlar mevcut modüllerin ham metriklerinden türetilen
+        <strong>geçici/sezgisel</strong> bir özettir — kesin "doğruluk oranı"
+        olarak okunmamalıdır.</span>
     </div>
 
     <div class="card">
-      <form method="post" enctype="multipart/form-data">
-        <label for="document">Bir belge fotoğrafı yükle</label>
+      <form method="post" enctype="multipart/form-data" id="score-form">
+        <label class="field-label" for="document">Belge fotoğrafı</label>
+
+        <label class="dropzone" id="dropzone" for="document">
+          <div class="dz-icon">📤</div>
+          <div class="dz-text">Dosyayı sürükle bırak ya da tıkla</div>
+          <div class="dz-hint">JPG, PNG, BMP</div>
+          <div class="dz-filename" id="dz-filename"></div>
+        </label>
         <input type="file" id="document" name="document" accept=".jpg,.jpeg,.png,.bmp" required>
 
-        <div class="checkbox-row">
-          <input type="checkbox" id="include_glare" name="include_glare" {% if include_glare %}checked{% endif %}>
-          <label for="include_glare">Glare skorunu genel ortalamaya dahil et</label>
+        <div class="toggle-row">
+          <div class="label-block">
+            <strong>Glare skorunu dahil et</strong>
+            <span>Sentetik deneylerde ~%85 false-positive verdiği için güvenilmez; varsayılan kapalı.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" name="include_glare" {% if include_glare %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
         </div>
-        <p class="hint">
-          Glare modülü mevcut haliyle güvenilmez bulundu: sentetik deneylerde,
-          hiç glare olmayan görüntülerde bile ~%85 oranında "glare var" sinyali
-          üretiyor. Varsayılan olarak nihai skora katılmaz.
-        </p>
 
-        <button type="submit">Skorla</button>
+        <button type="submit" class="submit-btn">Skorla →</button>
       </form>
     </div>
 
     {% if result %}
       {% if result.error %}
-        <div class="card"><p class="error">{{ result.error }}</p></div>
+        <div class="card error-card">{{ result.error }}</div>
       {% else %}
         {% if image_data_uri %}
-          <div class="card">
-            <img class="preview" src="{{ image_data_uri }}" alt="Yüklenen belge">
-          </div>
+          <div class="card"><img class="preview" src="{{ image_data_uri }}" alt="Yüklenen belge"></div>
         {% endif %}
 
-        <div class="card overall">
-          <p class="score {{ result.verdict_class }}">{{ "%.1f"|format(result.overall_score) }} / 100</p>
-          <p class="verdict">{{ result.verdict_text }}</p>
+        <div class="card overall-card">
+          <div class="gauge-wrap">
+            <svg viewBox="0 0 120 120">
+              <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+              <circle class="gauge-fill {{ result.verdict_class }}" id="gauge-fill" cx="60" cy="60" r="52"
+                stroke-dasharray="326.7" stroke-dashoffset="326.7"
+                data-target-offset="{{ (326.7 * (1 - result.overall_score / 100))|round(2) }}"></circle>
+            </svg>
+            <div class="gauge-center">
+              <span class="num">{{ result.overall_score|round(0, "floor")|int }}</span>
+              <span class="denom">/ 100</span>
+            </div>
+          </div>
+          <span class="verdict-pill {{ result.verdict_class }}">{{ result.verdict_text }}</span>
         </div>
 
         <div class="card">
-          <h3 style="margin-top:0;">Modül Bazlı Detay</h3>
+          <h2 class="section-title">Modül Bazlı Detay</h2>
           {% for key in module_order %}
             {% set comp = result.components[key] %}
             {% set label, hint = module_labels[key] %}
+            {% set mc = result.method_comparison[key] %}
+            {% set sclass = "good" if comp.score >= 70 else ("warn" if comp.score >= 40 else "bad") %}
             <div class="module-row">
-              <div>
-                <div class="module-name">{{ label }}</div>
-                <div class="module-hint">{{ hint }}</div>
-                <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
-                {% if key == "glare" and not result.glare_included %}
-                  <div class="module-raw">Genel ortalamaya dahil edilmedi.</div>
-                {% endif %}
-
-                {% set mc = result.method_comparison[key] %}
-                <details>
-                  <summary>Bu modülde yöntemler nasıl karşılaştırılıyor?</summary>
-                  <table class="method-table">
-                    {% for method_name, method_value in mc.methods.items() %}
-                      <tr {% if method_name == mc.used_in_overall %}class="used"{% endif %}>
-                        <td>{{ method_name }}</td>
-                        <td class="value">{{ method_value }}</td>
-                      </tr>
-                    {% endfor %}
-                  </table>
-                  <p class="method-note">Füzyonda kullanılan: <strong>{{ mc.used_in_overall }}</strong>. {{ mc.note }}</p>
-                </details>
+              <div class="module-top">
+                <div>
+                  <div class="module-name">{{ label }}</div>
+                  <div class="module-hint">{{ hint }}</div>
+                </div>
+                <div class="module-score-num {{ sclass }}">{{ "%.0f"|format(comp.score) }}</div>
               </div>
-              <div class="module-score">{{ "%.1f"|format(comp.score) }}</div>
+              <div class="bar-track"><div class="bar-fill {{ sclass }}" style="width: {{ comp.score }}%"></div></div>
+              <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
+              {% if key == "glare" and not result.glare_included %}
+                <div class="module-flag">Genel ortalamaya dahil edilmedi.</div>
+              {% endif %}
+
+              <details>
+                <summary>Bu modülde yöntemler nasıl karşılaştırılıyor?</summary>
+                <div class="method-table">
+                  {% for method_name, method_value in mc.methods.items() %}
+                    <div class="method-item {% if method_name == mc.used_in_overall %}used{% endif %}">
+                      <div class="method-head">
+                        <span class="method-name">{{ method_name }}</span>
+                        <span class="method-value">{{ method_value }}</span>
+                      </div>
+                      <div class="mini-bar-track"><div class="mini-bar-fill" data-mbar style="width: 0%"></div></div>
+                    </div>
+                  {% endfor %}
+                </div>
+                <p class="method-note">Füzyonda kullanılan: <strong>{{ mc.used_in_overall }}</strong>. {{ mc.note }}</p>
+              </details>
             </div>
           {% endfor %}
         </div>
 
-        <p class="note">{{ result.calibration_note }}</p>
-        <p class="note">{{ result.occlusion_note }}</p>
+        <p class="notes">{{ result.calibration_note }}<br>{{ result.occlusion_note }}</p>
       {% endif %}
     {% endif %}
 
     <footer>Document Quality Scoring — Aşama 5 demo arayüzü</footer>
   </div>
+
+<script>
+  // Dosya seçimi / drag&drop
+  const input = document.getElementById("document");
+  const dropzone = document.getElementById("dropzone");
+  const filenameEl = document.getElementById("dz-filename");
+
+  input.addEventListener("change", () => {
+    if (input.files.length) filenameEl.textContent = "✓ " + input.files[0].name;
+  });
+  ["dragenter", "dragover"].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add("dragover"); })
+  );
+  ["dragleave", "drop"].forEach(evt =>
+    dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove("dragover"); })
+  );
+  dropzone.addEventListener("drop", e => {
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      filenameEl.textContent = "✓ " + e.dataTransfer.files[0].name;
+    }
+  });
+
+  // Gauge animasyonu (sayfa yüklendikten hemen sonra hedef değere geçiş yapar)
+  const gaugeFill = document.getElementById("gauge-fill");
+  if (gaugeFill) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        gaugeFill.style.strokeDashoffset = gaugeFill.dataset.targetOffset;
+      });
+    });
+  }
+
+  // Yöntem karşılaştırma mini-barları: aynı modül içinde en yüksek mutlak
+  // değere göre göreceli genişlik (yalnızca görsel karşılaştırma amaçlı).
+  document.querySelectorAll(".method-table").forEach(table => {
+    const items = [...table.querySelectorAll(".method-item")];
+    const nums = items.map(it => {
+      const raw = it.querySelector(".method-value").textContent.trim();
+      const n = parseFloat(raw.replace(",", "."));
+      return isNaN(n) ? 0 : Math.abs(n);
+    });
+    const max = Math.max(...nums, 0.0001);
+    items.forEach((it, i) => {
+      const bar = it.querySelector("[data-mbar]");
+      const pct = Math.max(4, (nums[i] / max) * 100);
+      requestAnimationFrame(() => { bar.style.width = pct + "%"; });
+    });
+  });
+</script>
 </body>
 </html>
