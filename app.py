@@ -30,10 +30,10 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB üst sınır
 
 MODULE_LABELS = {
-    "blur": ("🔍 Bulanıklık (Blur)", "Yüksek skor = keskin/net görüntü"),
-    "darkness": ("💡 Aydınlatma (Darkness)", "Yüksek skor = yeterince aydınlık"),
-    "skew": ("📐 Eğiklik (Skew)", "Yüksek skor = belge düz, az eğik"),
-    "glare": ("✨ Parlama (Glare)", "GÜVENİLMEZ — yalnızca bilgi amaçlı"),
+    "blur": ("Bulanıklık", "Yüksek skor = keskin/net görüntü"),
+    "darkness": ("Aydınlatma", "Yüksek skor = yeterince aydınlık"),
+    "skew": ("Eğiklik", "Yüksek skor = belge düz, az eğik"),
+    "glare": ("Parlama", "Güvenilmez — yalnızca bilgi amaçlı"),
 }
 
 
