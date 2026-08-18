@@ -102,24 +102,6 @@
   .dropzone .dz-filename { color: var(--accent); font-weight: 600; margin-top: 10px; font-size: 0.85rem; word-break: break-all; }
   input[type=file] { display: none; }
 
-  .toggle-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 14px;
-    margin-top: 18px; padding: 14px 4px 0;
-    border-top: 1px solid var(--border);
-  }
-  .toggle-row .label-block { font-size: 0.85rem; }
-  .toggle-row .label-block strong { display: block; font-size: 0.88rem; margin-bottom: 2px; font-weight: 600; }
-  .toggle-row .label-block span { color: var(--muted); }
-  .switch { position: relative; width: 40px; height: 23px; flex-shrink: 0; }
-  .switch input { opacity: 0; width: 0; height: 0; }
-  .slider { position: absolute; inset: 0; background: var(--border); border-radius: 999px; cursor: pointer; transition: .15s; }
-  .slider::before {
-    content: ""; position: absolute; width: 17px; height: 17px; left: 3px; top: 3px;
-    background: var(--card); border-radius: 50%; transition: .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25);
-  }
-  .switch input:checked + .slider { background: var(--accent); }
-  .switch input:checked + .slider::before { transform: translateX(17px); }
-
   button.submit-btn {
     width: 100%; margin-top: 20px;
     background: var(--accent); color: var(--card); border: none;
@@ -234,17 +216,6 @@
         </label>
         <input type="file" id="document" name="document" accept=".jpg,.jpeg,.png,.bmp" required>
 
-        <div class="toggle-row">
-          <div class="label-block">
-            <strong>Parlama (glare) skorunu dahil et</strong>
-            <span>Sentetik deneylerde ~%85 hatalı-pozitif verdiği için güvenilmez; varsayılan kapalı.</span>
-          </div>
-          <label class="switch">
-            <input type="checkbox" name="include_glare" {% if include_glare %}checked{% endif %}>
-            <span class="slider"></span>
-          </label>
-        </div>
-
         <button type="submit" class="submit-btn">Skorla</button>
       </form>
     </div>
@@ -303,8 +274,10 @@
               </div>
               <div class="bar-track"><div class="bar-fill {{ sclass }}" style="width: {{ comp.score }}%"></div></div>
               <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
-              {% if key == "glare" and not result.glare_included %}
-                <div class="module-flag">Genel ortalamaya dahil edilmedi.</div>
+              {% if key == "glare" and not comp.reliable %}
+                <div class="module-flag">Düz beyaz kağıtta güvenilmez — genel ortalamaya dahil edilmedi.</div>
+              {% elif key == "glare" and comp.reliable %}
+                <div class="module-flag">Renkli zemin tespit edildi — güvenilir kabul edilip ortalamaya dahil edildi.</div>
               {% endif %}
 
               <details>
@@ -336,7 +309,7 @@
           {% endfor %}
         </div>
 
-        <p class="notes">{{ result.calibration_note }}<br>{{ result.occlusion_note }}</p>
+        <p class="notes">{{ result.calibration_note }}<br>{{ result.occlusion_note }}<br>{{ result.glare_note }}</p>
       {% endif %}
     {% endif %}
 

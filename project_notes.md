@@ -939,3 +939,77 @@ Glare için gerçekçi sıradaki adım hâlâ Aşama 3 (tam CNN, stroke-histogra
 dahil) — ama artık NEDEN yalnızca blok-bazlı/context'siz yöntemlerin (ne klasik ne ML)
 yeterli olmadığı üç ayrı denemeyle (HSV+CC, şekil filtresi, blok-bazlı RF) somut biçimde
 kanıtlanmış durumda.
+
+### Glare ML v2-v5 (bağlam-farkında versiyonlar) — dört ek deneme, hepsi yetersiz
+
+Kullanıcı, occlusion'daki ML başarısından sonra glare için de ML denenmesini istedi.
+Satır-bağlamlı bir Random Forest (`src/glare/ml_detection.py`) geliştirildi: her bloğun
+kendi özelliklerine ek olarak AYNI SATIRDAKİ diğer bloklara göre ne kadar "beklenmedik
+şekilde düz" olduğu da özellik olarak kullanıldı. İlk doğrulamada (rho=0.99) büyük başarı
+gibi göründü — ama bu doğrulama **YANLIŞ** bir `roi=content_bbox` varsayımıyla yapılmıştı;
+üretim kodu (`fusion.py`) gerçek bir fotoğrafta content_bbox bilmediği için `roi=None`
+kullanıyor. Bu yanlışlık düzeltilip dört varyant `roi=None` (gerçekçi) koşulda test edildi:
+
+| Versiyon | Değişiklik | Görülmemiş belge rho | Bulanıklıkta en kötü hatalı-pozitif |
+|---|---|---|---|
+| v1 | Satır bağlamı (temel) | 0.66 | %92 |
+| v2 | + bulanık negatif eğitim örnekleri | 0.69 | %20 (ama tespit performansı da düştü) |
+| v3 | + belge-geneli doku özelliği | ~0 (bozuldu) | %32 (tespit tamamen öldü) |
+| v4 | v1 + eğitim/üretim roi uyumu | 0.76 | %88 |
+| v5 | v4 + fiziksel makul üst sınır (cap=0.25) | 0.76 | %25 (ama gerçek şiddetli glare bile "orta" bantta kalıyor, tutarsız) |
+
+**Hiçbiri üretime alınmadı.** Her düzeltme bir sorunu iyileştirirken başka birini kötüleştirdi
+— klasik "whack-a-mole" paterni. v1 kodu (en basit, tarihsel referans olarak) korundu;
+v2-v5'in kodu geri alındı.
+
+### 🔎 Dış araştırma: modern (2024-2025) glare/specular highlight literatürü
+
+Kullanıcı "daha güncel yöntemleri araştır" dedi. Bulgular:
+- ICDAR 2024 "Document Specular Highlight Removal with Coarse-to-Fine Strategy",
+  SHDocs (NeurIPS 2024), HighlightRemover (ACM MM 2024), Dual-Hybrid Attention Network
+  (ACM MM 2024), TSHRNet, UnReflectAnything (2025) — HEPSİ derin öğrenme modelleri,
+  EŞLEŞTİRİLMİŞ gerçek fotoğraf veri setleri (glare'li/glare'siz aynı sayfa) gerektiriyor.
+  Bu projede ne böyle bir veri seti ne GPU eğitim altyapısı var — kapsam dışı.
+- Klasik (eğitimsiz) yöntemlerin çoğu **dichromatic reflection model**e dayanıyor:
+  parlamanın rengi (ışık kaynağının rengi, genelde beyaza yakın) yüzeyin KENDİ renginden
+  ayrışır. Bu, meyve/seramik/cilt gibi RENKLİ/parlak yüzeylerde işe yarar. **Düz beyaz
+  kağıtta işe yaramaz çünkü yüzeyin "gerçek rengi" zaten beyaz — ayrışacak bir fark yok.**
+  Bu, altı ayrı denemenin (HSV+CC, şekil filtresi, 4 ML varyantı) neden hepsinin aynı
+  duvara çarptığını bağımsız olarak, literatürden doğruluyor.
+
+### Glare — Kimlik Kartı/Pasaport Zemini Deneyi: BAŞARILI (kullanıcı önerisi)
+
+Kullanıcının önerisi: "hep beyaz kağıtta denedik, kimlik/pasaport gibi başka veri de
+deneyelim." Dichromatic model prensibine göre bu RENKLİ zeminlerde işe yaramalıydı —
+test edildi ve **doğrulandı**.
+
+**Deney:** `experiments/glare/generate_id_card_documents.py` — 3 farklı kart renk şeması
+(mavi-gri, bej, yeşilimsi) × 4 varyant × 6 glare şiddeti = 72 görüntü, ID-1 kart oranında
+(856×540), fotoğraf placeholder + metin satırı blokları ile. `run_id_card_experiment.py`
+— **hiçbir değişiklik yapılmadan**, zaten var olan `src/glare/metrics.py`'deki `glare_ratio`
+(HSV+CC) fonksiyonu test edildi.
+
+**Sonuç:**
+| Metrik | Değer |
+|---|---|
+| Ortalama rho (3 renk şemasında) | **1.0000** (std=0.0) |
+| Severity=0 hatalı-pozitif | **0.0000** (max de 0.0000) |
+| Bulanıklık+glare-yok hatalı-pozitif (3 renk × 6 blur seviyesi) | **0.0000** (hepsinde) |
+
+Beyaz kağıtta çözülemeyen İKİ sorun da (temel hatalı-pozitif VE bulanıklık karışması)
+kimlik kartı zemininde TAMAMEN kayboldu — hiç ML gerekmeden. Bkz.
+`results/glare/id_card_scores.csv`, `id_card_blur_false_positive_check.csv`,
+`plots/id_card_generalization.png`.
+
+**Entegrasyon:** `src/glare/metrics.py`'ye `has_colored_background()` eklendi — bir
+görüntünün zemininin renkli mi (S>15 piksellerin oranı ≥%15) yoksa düz beyaz/gri mi
+olduğunu tahmin eder (sentetik testte beyaz kağıt %0, kimlik kartı %100 çıktı — temiz bir
+ayrım). `src/scoring/fusion.py`'deki `score_glare` artık KOŞULLU: zemin renkliyse
+`glare_ratio` (klasik, güvenilir) kullanılır ve nihai ortalamaya dahil edilir; düz beyaz
+kağıtsa `glare_ml_ratio` (v1, bilgi amaçlı) hesaplanır ama `reliable=False` ile ortalama
+DIŞINDA tutulur. Diğer hiçbir modüle (blur/darkness/skew/occlusion) dokunulmadı.
+
+**Bilinen sınırlama:** Blur/darkness/skew'in normalizasyon eşikleri, düz metin belgeleri
+için kalibre edildi (bkz. "Kalibrasyon düzeltmesi" bölümü) — kimlik kartı gibi farklı bir
+belge türünde (solid renk blokları, farklı doku) bu eşikler henüz ayrıca doğrulanmadı;
+yalnızca glare'in kendisi bu deneyde test edildi.

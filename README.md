@@ -64,14 +64,14 @@ izler: her bozulma türü için ayrı, **eğitim gerektirmeyen (training-free)**
         ▼             ▼             ▼             ▼              ▼
    ┌─────────┐  ┌───────────┐ ┌─────────┐  ┌───────────┐  ┌─────────────┐
    │  Blur   │  │ Darkness  │ │  Skew   │  │Occlusion  │  │   Glare     │
-   │ (keskin-│  │(aydınlat- │ │(eğiklik │  │(ML: renk+ │  │ (parlama,   │
-   │  lik)   │  │  ma)      │ │ açısı)  │  │doku, konum│  │ opsiyonel)  │
+   │ (keskin-│  │(aydınlat- │ │(eğiklik │  │(ML: renk+ │  │ (koşullu:   │
+   │  lik)   │  │  ma)      │ │ açısı)  │  │doku, konum│  │zemin renkli?)│
    └────┬────┘  └─────┬─────┘ └────┬────┘  └─────┬─────┘  └──────┬──────┘
         │             │            │             │               │
-        └─────────────┴────────────┴─────────────┘               │
-                            │                            (varsayılan hariç —
-                            ▼                             güvenilmez bulundu,
-                  ┌───────────────────┐                   bkz. Sınırlamalar)
+        └─────────────┴────────────┴─────────────┴───────────────┘
+                                    │                    (Glare yalnızca zemin
+                                    ▼                     RENKLİYSE dahil edilir
+                  ┌───────────────────┐                   — bkz. Sınırlamalar)
                   │  Feature Fusion    │
                   │ (src/scoring/      │
                   │   fusion.py)       │
@@ -97,7 +97,7 @@ doğrulanır (`experiments/`); doğrulanan modüller ancak sonra `src/scoring/fu
 | **Blur** | Laplacian Variance, Tenengrad, Gradient Magnitude | ✅ Doğrulandı |
 | **Darkness** | Global istatistik, percentile analizi, blok-bazlı yerel analiz | ✅ Doğrulandı |
 | **Skew** | Hough Transform, Projection Profile | ✅ Doğrulandı |
-| **Glare** | HSV eşikleme + Connected Components | ⚠️ Baseline yetersiz bulundu |
+| **Glare** | HSV eşikleme + Connected Components | ⚠️ Beyaz kağıtta yetersiz, ✅ renkli zeminde (kimlik kartı) doğrulandı |
 | **Occlusion** | OCR + beklenen alan deseni (şablon gerekir) **+** ML (Random Forest) tespiti (konum/renk/dokudan bağımsız) | ✅ Doğrulandı |
 | **Feature Fusion** | Ağırlıklı/doğrusal normalizasyon birleşimi | 🚧 İlk sürüm tamamlandı |
 
@@ -149,10 +149,11 @@ bunların aynı görüntü üzerindeki karşılaştırması da gösterilir.
 
 > **Not:** Bu skor, etiketli gerçek veriyle kalibre edilmiş bir ML modelinin çıktısı
 > değildir; mevcut modüllerin ham metriklerinden türetilen geçici/sezgisel bir özettir.
-> Glare, kendi deneylerinde ~%85 hatalı-pozitif oranı verdiği için (ve bir düzeltme
-> denemesi de başarısız olduğu için) varsayılan olarak nihai skora dahil edilmez.
-> Occlusion'ın OCR tabanlı, alan-bazlı bileşeni önceden bilinen şablon gerektirdiğinden bu
-> genel akışa dahil değildir — ama konum/renk/dokudan bağımsız ML tespiti dahildir. Detay için
+> Glare skoru KOŞULLUDUR: zemin renkli ise (kimlik kartı/pasaport benzeri) güvenilir kabul
+> edilip nihai skora dahil edilir; düz beyaz kağıtta (altı ayrı denemeye rağmen) güvenilir
+> bulunamadığı için yalnızca bilgi amaçlı gösterilir. Occlusion'ın OCR tabanlı, alan-bazlı
+> bileşeni önceden bilinen şablon gerektirdiğinden bu genel akışa dahil değildir — ama
+> konum/renk/dokudan bağımsız ML tespiti dahildir. Detay için
 > [Bilinen Sınırlamalar](#bilinen-sınırlamalar).
 
 ### Deneyleri çalıştırma
@@ -190,7 +191,7 @@ import cv2
 from src.scoring.fusion import compute_document_quality_score
 
 image = cv2.imread("belge.jpg")
-result = compute_document_quality_score(image, include_glare=False)
+result = compute_document_quality_score(image)
 
 print(result["overall_score"])       # 0-100
 print(result["components"]["blur"])  # {'raw_value': ..., 'score': ...}
@@ -249,11 +250,13 @@ Spearman korelasyonu (rho) ile raporlanır. Öne çıkan bulgular:
 | Skew | Projection Profile | MAE ≈ 1.82° | `results/skew/scores.csv` |
 | Occlusion | length_ratio (alan-bazlı, OCR) | rho ≈ −0.97 | `results/occlusion/scores.csv` |
 | Occlusion | ml_occlusion_ratio (konum/renk/dokudan bağımsız) | rho = 1.00 (5 görülmemiş renk/dokuda da), hatalı-pozitif = 0 | `results/occlusion/ml_scores.csv` |
-| Glare | naive_glare_ratio | rho = 1.00, **ancak** severity=0'da ~%85 hatalı-pozitif | `results/glare/false_positive_baseline.csv` |
+| Glare (beyaz kağıt) | naive_glare_ratio | rho = 1.00, **ancak** severity=0'da ~%85 hatalı-pozitif | `results/glare/false_positive_baseline.csv` |
+| Glare (renkli zemin) | glare_ratio (AYNI, değiştirilmemiş fonksiyon) | rho = 1.00, hatalı-pozitif = 0 (3 renk şeması, 72 görüntü) | `results/glare/id_card_scores.csv` |
 
-Glare satırındaki çelişki kasıtlı olarak vurgulanmıştır: yöntem *bozulma arttıkça*
-tutarlı tepki verse de, *hiç bozulma olmayan* görüntülerde bile yüksek oranda yanlış
-alarm üretmektedir — bu yüzden production kullanıma hazır kabul edilmemiştir (bkz.
+Glare satırlarındaki çelişki kasıtlı olarak vurgulanmıştır: aynı basit yöntem, düz beyaz
+kağıtta *hiç bozulma olmayan* görüntülerde bile yüksek oranda yanlış alarm üretirken,
+kimlik kartı gibi RENKLİ zeminde hatasız çalışır — nedeni "dichromatic reflection model"
+(parlamanın rengi, yüzeyin kendi renginden ancak yüzey renkliyse ayrışabilir) — bkz.
 [Bilinen Sınırlamalar](#bilinen-sınırlamalar)).
 
 Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler için
@@ -269,14 +272,18 @@ Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler iç
 | 3. Skew | ✅ Tamamlandı | Hough, az-metinli belgelerde Projection Profile'dan daha istikrarlı |
 | 4. Occlusion (alan-bazlı) | ✅ Tamamlandı | Yalnızca yapılandırılmış (şablonu bilinen) alanlarla sınırlı |
 | 4. Occlusion (ML) | ✅ Tamamlandı | Konum/renk/dokudan bağımsız (Random Forest); yalnızca sentetik yamalarla doğrulandı |
-| 4. Glare | ⚠️ Yetersiz bulundu | HSV+CC baseline'ı, beyaz kağıt ile glare'i ayırt edemiyor; şekil-filtresi düzeltmesi de denendi ve başarısız oldu |
+| 4. Glare (beyaz kağıt) | ⚠️ Yetersiz bulundu | Altı ayrı deneme (HSV+CC, şekil filtresi, 4 ML varyantı) hiçbiri güvenilir olmadı |
+| 4. Glare (renkli zemin) | ✅ Doğrulandı | Kimlik kartı/pasaport benzeri zeminde AYNI basit yöntem rho=1.00, hatalı-pozitif=0 |
 | 5. Feature Fusion + Web arayüzü | 🚧 v1.1 (kalibrasyon düzeltmeli) | Kalibrasyon eşikleri henüz gerçek etiketli veriyle doğrulanmadı |
 | 6. Nihai rapor | ⏳ Başlanmadı | Tüm modüller ve kalibrasyon netleştiğinde ayrı bir adımda yazılacak |
 
 **Açık noktalar (Aşama 5+ için):**
 - Tüm alt-skorların ortak bir yöne (yüksek = iyi) normalize edildiğinin doğrulanması.
-- Glare modülünün CNN tabanlı bir yaklaşıma (Rodin & Orlov, 2019) taşınması ya da kalıcı
-  olarak füzyon dışı bırakılması — klasik post-processing denendi, işe yaramadı.
+- Glare'in beyaz-kağıt sınırlaması artık NEDEN kaynaklı olarak anlaşıldı (dichromatic
+  reflection model, renksiz yüzeyde ayrışacak sinyal yok) — kalıcı çözüm ya renkli-zemin
+  tespitine (mevcut) güvenmek ya da gerçek CNN'e (Rodin & Orlov, 2019) geçmek.
+- Blur/darkness/skew'in normalizasyon eşiklerinin, kimlik kartı gibi düz metin dışı belge
+  türlerinde de ayrıca doğrulanması (şu an yalnızca glare bu türde test edildi).
 - Ten rengi tabanlı occlusion tespitinin gerçek (sentetik olmayan) fotoğraflarla,
   farklı ışık koşulları ve ten-rengi-benzeri arka planlarla yeniden doğrulanması.
 - Normalizasyon eşiklerinin gerçek, etiketli (sentetik olmayan) veriyle kalibrasyonu.
@@ -287,10 +294,12 @@ Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler iç
 - **Skorlar mutlak bir "doğruluk oranı" değildir.** Feature Fusion aşamasındaki
   normalizasyon eşikleri, literatür ve sentetik deney gözlemlerinden esinlenen
   geçici/sezgisel değerlerdir; gerçek etiketli veriyle öğrenilmemiştir.
-- **Glare modülü mevcut haliyle güvenilmez** — hiç parlama olmayan görüntülerde bile
-  ~%85 oranında yanlış alarm üretir (beyaz kağıt ile glare'i ayırt edemiyor); bunu
-  düzeltmeye yönelik bir şekil-filtresi denemesi de gerçek veriyle test edilip
-  başarısız bulundu (bkz. `project_notes.md`). Varsayılan olarak nihai skora dahil edilmez.
+- **Glare modülü yalnızca DÜZ BEYAZ KAĞITTA güvenilmez** — hiç parlama olmayan
+  görüntülerde bile ~%85 oranında yanlış alarm üretir; altı ayrı düzeltme denemesi (şekil
+  filtresi + dört ML varyantı) de bunu gideremedi (bkz. `project_notes.md`). **Kimlik
+  kartı/pasaport gibi RENKLİ zeminli belgelerde ise aynı basit yöntem hatasız çalışır**
+  (rho=1.00, hatalı-pozitif=0) — sistem zemin rengini otomatik tespit edip
+  (`has_colored_background`) buna göre glare'i dahil eder ya da dışlar.
 - **Occlusion modülünün OCR/alan-bazlı bileşeni yalnızca yapılandırılmış alanlarda
   çalışır** — konumu ve beklenen formatı önceden bilinen alanlar (örn. "Belge No")
   gerektirir. ML tabanlı bileşen (Random Forest) konum VE renkten bağımsızdır — 5

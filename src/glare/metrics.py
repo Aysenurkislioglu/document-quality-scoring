@@ -97,3 +97,36 @@ def glare_score(ratio: float) -> float:
     """
     score = 100.0 * (1.0 - min(ratio, 1.0))
     return max(0.0, score)
+
+
+def has_colored_background(image: np.ndarray, saturated_pixel_threshold: int = 15, min_fraction: float = 0.15) -> bool:
+    """
+    Belgenin zemininin (kimlik kartı/pasaport gibi) RENKLİ mi, yoksa düz
+    beyaz/gri kağıt mı olduğunu tahmin eder.
+
+    GEREKÇE: `glare_ratio` (HSV+CC), düz beyaz kağıtta glare'i zeminden
+    ayırt edemiyor — ikisi de "yüksek parlaklık + düşük saturasyon" (bkz.
+    project_notes.md, "Glare Aşama 1" ve "Glare ML v1-v5", altı ayrı
+    başarısız deneme). Ancak RENKLİ zeminlerde (kimlik kartı, pasaport)
+    AYNI yöntem mükemmel çalışıyor (bkz. project_notes.md, "Glare — Kimlik
+    Kartı Zemini Deneyi": rho=1.00, hatalı-pozitif=0, 3 renk şemasında,
+    hem glare-yok hem bulanıklık+glare-yok durumunda) — çünkü zeminin
+    "gerçek rengi" saturasyonlu olduğu için glare (fiziksel olarak beyaza
+    yakın) ondan gerçekten ayrışabiliyor (dichromatic reflection model
+    prensibi). Bu fonksiyon, hangi durumda olduğumuzu görüntüden tahmin
+    eder — `src/scoring/fusion.py` bu bilgiyle glare skoruna ne kadar
+    güveneceğine karar verir.
+
+    Args:
+        image: BGR veya gri numpy array.
+        saturated_pixel_threshold: HSV S kanalında bu değerin ÜZERİ
+            "renkli" piksel sayılır.
+        min_fraction: Görüntünün en az bu kadarı renkli pikselse, zemin
+            "renkli" kabul edilir. Sentetik testte beyaz kağıt %0, kimlik
+            kartı %100 çıktı — bu yüzden düşük bir eşik (varsayılan %15)
+            yeterince ayırt edici.
+    """
+    bgr = _to_bgr(image)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    fraction_saturated = float((hsv[:, :, 1] > saturated_pixel_threshold).mean())
+    return fraction_saturated >= min_fraction

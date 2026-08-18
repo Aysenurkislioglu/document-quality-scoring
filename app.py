@@ -1,8 +1,8 @@
 """
 Document Quality Scoring — basit Flask web arayüzü.
 
-Bir belge fotoğrafı yükle; sistem blur/darkness/skew (ve isteğe bağlı olarak
-glare) alt-skorlarını hesaplayıp birleşik bir Document Quality Score (0-100)
+Bir belge fotoğrafı yükle; sistem blur/darkness/skew/occlusion/glare
+alt-skorlarını hesaplayıp birleşik bir Document Quality Score (0-100)
 üretir.
 
 ÖNEMLİ: Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin
@@ -35,8 +35,9 @@ MODULE_LABELS = {
     "darkness": ("Aydınlatma", "Yüksek skor = yeterince aydınlık"),
     "skew": ("Eğiklik", "Yüksek skor = belge düz, az eğik"),
     "occlusion": ("Kapanma", "Yüksek skor = yabancı nesne (el/sticker/vb.) tespit edilmedi"),
-    "glare": ("Parlama", "Güvenilmez — yalnızca bilgi amaçlı"),
+    "glare": ("Parlama", "Yüksek skor = parlama tespit edilmedi"),
 }
+MODULE_ORDER = ["blur", "darkness", "skew", "occlusion", "glare"]
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -48,9 +49,8 @@ def handle_too_large(_error):
             "index.html",
             result={"error": "Dosya çok büyük (üst sınır: 16 MB). Daha küçük bir görüntü dene."},
             image_data_uri=None,
-            include_glare=False,
             module_labels=MODULE_LABELS,
-            module_order=["blur", "darkness", "skew", "occlusion", "glare"],
+            module_order=MODULE_ORDER,
         ),
         413,
     )
@@ -68,7 +68,6 @@ def _verdict(overall: float) -> tuple[str, str]:
 def index():
     result = None
     image_data_uri = None
-    include_glare = request.form.get("include_glare") == "on"
 
     if request.method == "POST":
         file = request.files.get("document")
@@ -80,7 +79,7 @@ def index():
             if image_bgr is None:
                 result = {"error": "Görüntü okunamadı. Desteklenen formatlar: jpg, png, bmp."}
             else:
-                scored = compute_document_quality_score(image_bgr, include_glare=include_glare)
+                scored = compute_document_quality_score(image_bgr)
                 method_comparison = compare_module_methods(image_bgr)
                 for module_data in method_comparison.values():
                     module_data["methods"] = {
@@ -93,9 +92,9 @@ def index():
                     "verdict_class": verdict_class,
                     "verdict_text": verdict_text,
                     "components": scored["components"],
-                    "glare_included": scored["glare_included_in_overall"],
                     "calibration_note": scored["calibration_note"],
                     "occlusion_note": scored["occlusion_note"],
+                    "glare_note": scored["glare_note"],
                     "method_comparison": method_comparison,
                 }
                 b64 = base64.b64encode(raw_bytes).decode("ascii")
@@ -108,9 +107,8 @@ def index():
         "index.html",
         result=result,
         image_data_uri=image_data_uri,
-        include_glare=include_glare,
         module_labels=MODULE_LABELS,
-        module_order=["blur", "darkness", "skew", "occlusion", "glare"],
+        module_order=MODULE_ORDER,
     )
 
 

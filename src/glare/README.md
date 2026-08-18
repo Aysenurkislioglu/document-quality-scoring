@@ -65,3 +65,24 @@ Glare oranı yalnızca belgenin **içerik kutusu** (content bounding box — ba�
 metin satırlarının kapladığı alan) içinde hesaplanır; büyük boş kenar boşlukları (margin)
 hesaba katılmaz. Bu, saf beyaz kenarlıkların skoru şişirmesini kısmen engeller, ama satır
 aralarındaki boşluklar hâlâ yanlış pozitif üretebilir (bkz. yukarıdaki sınırlama).
+
+## Kırılma noktası: RENKLİ zeminde (kimlik kartı/pasaport) aynı yöntem mükemmel çalışıyor
+
+Yukarıdaki sınırlama, düz **beyaz kağıt** için geçerlidir. Altı ayrı düzeltme denemesi
+(şekil filtresi, dört farklı ML varyantı — bkz. `project_notes.md`, "Glare ML v1-v5")
+beyaz kağıtta bu sınırı aşamadı. Dış araştırma nedenini açıkladı: klasik specular-highlight
+yöntemleri **dichromatic reflection model**e dayanır — parlamanın rengi (ışık kaynağının
+rengi, beyaza yakın) yüzeyin KENDİ renginden ayrışır. Beyaz kağıtta yüzeyin "gerçek rengi"
+zaten beyaz olduğu için ayrışacak bir fark yok; ama **kimlik kartı/pasaport gibi renkli
+zeminli belgelerde** bu fark gerçek ve ölçülebilir.
+
+Bu, **hiçbir kod değişikliği yapılmadan**, yukarıdaki aynı `glare_ratio` (HSV+CC)
+fonksiyonuyla test edildi (`experiments/glare/generate_id_card_documents.py` +
+`run_id_card_experiment.py`): 3 renk şeması × 4 varyant × 6 şiddet = 72 görüntüde
+**rho=1.00, hatalı-pozitif=0** — hem glare-yok hem bulanıklık+glare-yok durumunda (beyaz
+kağıttaki en büyük ikinci sorun olan bulanıklık karışması burada da yok). Bkz.
+`results/glare/id_card_scores.csv`.
+
+**Sonuç:** `src/scoring/fusion.py`, her görüntü için `has_colored_background()` ile
+zeminin renkli mi düz beyaz mı olduğunu tahmin eder; yalnızca renkli zeminde glare
+skorunu nihai ortalamaya güvenilir şekilde dahil eder.
