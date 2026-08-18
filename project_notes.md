@@ -1177,3 +1177,29 @@ kağıt belgelerde (`ornek_gorseller/1_temiz.png` vb.) yanlışlıkla "renkli" d
 pipeline testinde glare artık her pozlama seviyesinde `uygulanabilir=True`, darkness her
 zaman doğru (P10, renkli zemin) yöntemi kullanıyor. Tam regresyon (beyaz kağıt + kimlik
 kartı) hatasız.
+
+### Occlusion v3 — vinyet eğitimi tamamlandı: büyük iyileşme + bilinen dar bir sınırlama
+
+`train_occlusion_classifier.py`'ye eklenen vinyet negatif örnekleriyle model yeniden
+eğitildi (~4.77M blok, 3 kaynaktan: beyaz kağıt+renkli yama, kimlik kartı+renkli yama,
+kimlik kartı+vinyet). Doğrulama:
+
+**Vinyet hatalı-pozitifi (asıl hedef):** vinyet=0.4'te oran %47'den **%0.46**'ya indi;
+vinyet=0.8 (aşırı, gerçekçi olmayan şiddette) bile yalnızca %16 — büyük iyileşme.
+
+**Gerçek-pozitif genellemesi (görülmemiş renkler/kartlar):** 8/10 (beyaz kağıt) ve 15/18
+(kimlik kartı) kombinasyon hâlâ mükemmel (rho=1.0). **Bilinen, dar kapsamlı bir gerileme:**
+yalnızca "acik_ten" ve "turkuaz" renklerinin **DÜZ (tek renkli)** varyantında, kapsama
+arttıkça oran YANLIŞ YÖNDE (artması gerekirken azalıyor) hareket ediyor. Kök neden aynı
+"döngüsel medyan kirlenmesi" (bkz. v2 notundaki %100 kapsama sınırlaması) — bu sefer daha
+düşük kapsamalarda da tetikleniyor, özellikle yama rengi kartın kendi tonuna yakınsa (örn.
+sarı-krem zemin + açık ten yaması).
+
+**Önemli mitigasyon:** Aynı renklerin **DOKULU (gürültülü, gerçek parmak/nesneye çok daha
+yakın)** varyantı HER İKİSİNDE de mükemmel (rho=1.0) kaldı. Gerçek bir parmak veya nesne
+zaten düz/tek renkli değildir — bu yüzden pratik etkisi sınırlı kabul edildi.
+
+**Karar:** v3 model üretime alındı (asıl bildirilen vinyet hatası çözüldü, bu daha önemli
+ve daha genel bir sorundu). Düz/tek-renk-kartla-benzer-tonlu occluder senaryosu, bilinen
+ve kabul edilen bir sınırlama olarak bırakıldı. Tam regresyon testinde (beyaz kağıt +
+kimlik kartı, web arayüzü üzerinden) hata yok.

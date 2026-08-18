@@ -1,5 +1,5 @@
 tone,textured,mean_rho
-acik_ten,False,1.0
+acik_ten,False,0.11214689243673077
 acik_ten,True,1.0
 koyu_ten,False,1.0
 koyu_ten,True,1.0
@@ -7,5 +7,5 @@ lacivert,False,1.0
 lacivert,True,1.0
 orta_ten,False,1.0
 orta_ten,True,1.0
-turkuaz,False,0.07360306857284865
+turkuaz,False,0.06930728074209097
 turkuaz,True,1.0
