@@ -1107,3 +1107,43 @@ tekrar test edildi. Düzeltmeden ÖNCE: 77.8 → 61.7 → 57.9 (çöküyor). Dü
 tam örtüşmüyor — bu yüzden "orijinal boyuttaki" kimlik kartı görüntüsü bile hafifçe
 büyütülüyor. Bu, mükemmel olmayan ama makul bir orta nokta; asıl önemli olan (çözünürlükten
 BAĞIMSIZLIK) sağlandı.
+
+### Darkness — kimlik kartı hatası: darkest_block_mean satürasyonu
+
+Kullanıcı: "karanlık fotolarda karanlık oranı direkt 0 veriliyor." Doğrulandı ve kök neden
+bulundu: temiz (hiç bozulmamış) bir kimlik kartı mockup'ında bile `darkest_block_mean` ham
+değeri **52** çıkıyordu — eşiğimiz (`DARKNESS_BAD=50`) tam bunun yanı başında. Kimlik
+kartının kendi tasarımı (fotoğraf alanı, koyu metin çubukları) tek bir 16x16 blok
+seviyesinde zaten "koyu" — bu bir aydınlatma sorunu değil, tasarım. En ufak bir ek
+karartma (örn. gerçek fotoğraflarda kaçınılmaz olan lens vinyeti) anında 0'a düşürüyordu.
+
+**Düzeltme:** `score_darkness`, glare/occlusion'daki gibi zemin rengine göre KOŞULLU
+hale getirildi:
+- RENKLİ zemin (kimlik kartı): artık TEK en karanlık blok yerine **P10** (en karanlık
+  %10 bloğun ortalaması) kullanılıyor — izole koyu tasarım öğelerine karşı çok daha
+  dayanıklı, ama gerçek/yaygın bir aydınlatma sorununu (vinyet gibi) hâlâ yakalıyor.
+  Kalibrasyon: temiz kartlarda P10≈140-152 (GOOD referansı), şiddetli vinyette (0.8) P10≈63
+  (BAD referansı) — `DARKNESS_CARD_BAD=60, DARKNESS_CARD_GOOD=140`.
+- Düz beyaz kağıt: DEĞİŞMEDİ, hâlâ `darkest_block_mean` (MIN) — bu, küçük kritik bir
+  kimlik alanının (örn. "Belge No") karanlık kalmasını yakalamak için bilinçli seçilmişti
+  ve o senaryoda doğrulanmıştı (rho≈-0.83); değiştirilmedi.
+
+**Doğrulama:** Aynı kart görüntüsüne 0.0'dan 0.8'e kademeli vinyet uygulanıp test edildi.
+Düzeltmeden ÖNCE: ani sıfıra çöküş. Düzeltmeden SONRA: 100→99→68→41→4 — düzgün, kademeli
+bir düşüş eğrisi. Tam regresyon testinde beyaz kağıt sonuçları değişmedi.
+
+### Occlusion — vinyet hatası (v3 düzeltmesi, eğitim sürüyor)
+
+Kullanıcının aynı mesajında ikinci bulgu: "kapanmada aynı sıkıntı devam ediyor, fotonun
+yüzde kaçı kapalı belirtmiyor direkt 0." Doğrulandı: kimlik kartı mockup'ına yalnızca
+lens vinyeti eklenince (occlusion YOK), `ml_occlusion_ratio` 0.066'dan **0.47**'ye
+fırlıyordu — köşelerdeki doğal karartma "yabancı nesne" sanılıyordu.
+
+**Kök neden:** v2'nin `color_dist_from_doc_median` özelliği, köşe bloklarının vinyetle
+kararmış rengini "belgenin kendi medyan renginden farklı" olarak okuyor — oysa bu gerçek
+bir kapanma değil, kameranın doğal optik özelliği.
+
+**Düzeltme (v3):** Eğitim verisine, HİÇ occlusion olmayan ama çeşitli şiddette (0.0-0.6)
+vinyetli kart örnekleri (tamamı label=0) eklendi — model artık "yumuşak/kademeli köşe
+kararması" ile "gerçek yabancı nesne"yi ayırt etmeyi öğreniyor. Eğitim bu not yazılırken
+arka planda çalışıyor; sonuç ve doğrulama bir sonraki notta.

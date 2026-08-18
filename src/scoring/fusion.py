@@ -60,7 +60,7 @@ import cv2
 import numpy as np
 
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
-from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean
+from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean, local_brightness_blocks
 from src.glare.metrics import glare_ratio, has_colored_background
 from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
@@ -112,6 +112,18 @@ GLARE_CARD_BAD, GLARE_CARD_GOOD = 0.35, 0.0  # glare_ratio, YALNIZCA renkli zemi
 # (bkz. results/glare/id_card_scores.csv: severity=5 ortalama 0.33, max 0.48 —
 # 0.35 bu aralığı makul şekilde kapsıyor).
 
+DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD = 60.0, 140.0  # P10 (persentil), YALNIZCA
+# renkli zeminde. GEREKÇE: kullanıcı gerçek kimlik kartlarında darkness'ın
+# HER ZAMAN 0 çıktığını bildirdi — kök neden, darkest_block_mean (TEK en
+# karanlık 16x16 blok) kullanılıyordu; kimlik kartlarının kendi tasarımı
+# (fotoğraf alanı, koyu metin çubukları) zaten tek başına bu eşiğin
+# sınırındaydı (temiz bir kartta bile ham değer ~52, eşik 50 — satürasyon
+# hatasının aynısı, bu sefer "tasarım gereği koyu blok" yüzünden). P10
+# (en karanlık %10'un ortalaması), izole koyu tasarım öğelerine (tek bir
+# blok) karşı çok daha dayanıklı, ama gerçek/yaygın bir aydınlatma sorununu
+# (örn. lens vinyeti) hâlâ yakalıyor — bkz. project_notes.md, "Darkness —
+# kimlik kartı hatası".
+
 
 def _linear_score(value: float, bad: float, good: float) -> float:
     """`value`'yu [bad, good] aralığında 0-100 puana doğrusal eşler (clip'li).
@@ -156,19 +168,35 @@ def score_blur(image: np.ndarray) -> Dict[str, object]:
 
 
 def score_darkness(image: np.ndarray) -> Dict[str, object]:
-    """En karanlık blok ortalaması tabanlı karanlık alt-skoru (yüksek=aydınlık=iyi).
+    """Karanlık alt-skoru — zemin RENKLİ mi DEĞİL mi'ye göre farklı istatistik
+    kullanır (yüksek=aydınlık=iyi).
 
-    BİLİNEN SINIRLAMA: darkest_block_mean, metin yoğunluğuyla karışır (koyu
-    mürekkep pikselleri yoğun bir blok, gerçek bir aydınlatma sorunu olmasa
-    bile düşük ortalama üretir) — results/darkness/scores_local.csv'de HİÇ
-    karartma uygulanmamış (severity=0) belgelerde bile bu değerin 52-168
-    arasında değiştiği gözlemlenmiştir. Aşağıdaki eşikler bu gerçek dağılıma
-    göre kalibre edilmiştir, ama bu confound (karışma) tamamen çözülmüş
-    değildir — font/metin yoğunluğu çok yüksek temiz bir belge yine de düşük
-    puan alabilir. Kalıcı çözüm, project_notes.md'de planlanan ML regresyon
-    katmanının bunu diğer özelliklerle (örn. metin yoğunluğu) birlikte
-    öğrenmesidir.
+    GEREKÇE: Kullanıcı gerçek kimlik kartlarında darkness'ın HER ZAMAN 0
+    çıktığını bildirdi. Kök neden: `darkest_block_mean` (TEK en karanlık
+    16x16 blok) metin belgeleri için tasarlanmıştı; kimlik kartının kendi
+    tasarımı (fotoğraf alanı, koyu metin çubukları) tek başına bu eşiğin
+    sınırındaydı — temiz bir kartta bile ham değer ~52, eşik 50 (bkz.
+    project_notes.md, "Darkness — kimlik kartı hatası"). RENKLİ zeminde
+    bunun yerine P10 (en karanlık %10 bloğun ortalaması) kullanılır — izole
+    koyu tasarım öğelerine (tek blok) karşı çok daha dayanıklı, ama gerçek
+    bir aydınlatma sorununu (örn. lens vinyeti) hâlâ yakalıyor.
+
+    Düz beyaz kağıtta hâlâ `darkest_block_mean` (MIN) kullanılır —
+    experiments/darkness deneyinde bilinçli seçilmişti (küçük, kritik bir
+    kimlik alanının [örn. "Belge No"] karanlık kalmasını yakalamak için) ve
+    bu senaryoda doğrulanmıştı (rho≈-0.83). BİLİNEN SINIRLAMA (beyaz
+    kağıtta hâlâ geçerli): darkest_block_mean, metin yoğunluğuyla karışır —
+    results/darkness/scores_local.csv'de HİÇ karartma uygulanmamış
+    belgelerde bile bu değerin 52-168 arasında değiştiği gözlemlenmiştir.
     """
+    if has_colored_background(image):
+        blocks = local_brightness_blocks(image, block_size=DARKNESS_BLOCK_SIZE)
+        p10 = float(np.percentile(blocks, 10))
+        return {
+            "raw_value": p10,
+            "raw_label": "brightness_p10_of_blocks (renkli zemin)",
+            "score": _linear_score(p10, DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD),
+        }
     dbm = darkest_block_mean(image, block_size=DARKNESS_BLOCK_SIZE)
     return {
         "raw_value": dbm,

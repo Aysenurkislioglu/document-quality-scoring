@@ -25,6 +25,15 @@ occlusion'sız hem occlusion'lı örnekler) eklendi — model, "bu blok
 BELGENİN KENDİ renk şemasına mı uyuyor, yoksa gerçekten farklı bir nesne mi"
 ayrımını (`color_dist_from_doc_median` özelliği sayesinde) öğreniyor.
 
+v3 DÜZELTMESİ (vinyet/lens karartması): Kullanıcı, gerçek fotoğraflarda
+"kapanma oranının hep 0 gösterdiğini" (yani occlusion ratio'nun çok yüksek
+çıktığını) bildirdi. Kök neden: telefon kameralarının DOĞAL köşe karartması
+(vinyet), köşedeki blokların rengini merkeze göre değiştiriyor,
+`color_dist_from_doc_median` bunu "yabancı nesne" sanıyordu (bkz.
+project_notes.md, "Occlusion — vinyet hatası"). Eğitim verisine artık
+VİNYETLİ (kapanmasız) kart örnekleri de ekleniyor — model, "yumuşak/kademeli
+köşe kararması" ile "gerçek bir yabancı nesne" arasındaki farkı öğreniyor.
+
 Çıktı: src/occlusion/models/occlusion_rf.joblib
 """
 
@@ -71,6 +80,22 @@ CARD_TRAIN_SCHEMES = {
     "pembemsi": {"bg": (236, 210, 214), "photo": (200, 165, 172), "text": (90, 30, 40)},
 }
 CARD_OCCLUDER_COLORS = TRAIN_COLORS  # kartlarda da AYNI 14 renk kullanılır
+VIGNETTE_STRENGTHS = [0.0, 0.15, 0.3, 0.45, 0.6]  # v3: doğal lens karartması negatifleri
+
+
+def apply_vignette(rgb_array: np.ndarray, strength: float) -> np.ndarray:
+    """Kamera lensinin doğal köşe karartmasını (vinyet) simüle eder —
+    occlusion DEĞİLDİR, model bunu böyle öğrenmeli (bkz. modül docstring'i,
+    "v3 düzeltmesi")."""
+    if strength <= 0:
+        return rgb_array
+    h, w = rgb_array.shape[:2]
+    yy, xx = np.ogrid[:h, :w]
+    cx, cy = w / 2, h / 2
+    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    max_dist = np.sqrt(cx ** 2 + cy ** 2)
+    mask = (1 - strength * (dist / max_dist))[..., None]
+    return np.clip(rgb_array.astype(np.float64) * mask, 0, 255).astype(np.uint8)
 
 
 def apply_patch(rgb_array: np.ndarray, content_bbox, coverage: float, color, textured: bool, rng: random.Random):
@@ -133,7 +158,7 @@ def main():
                     Y_train.extend(Y)
 
     # --- 2) RENKLİ kimlik kartları: occlusion'sız (label=0) + occlusion'lı (label=1) ---
-    print(f"[2/2] Kimlik kartı eğitim verisi ({len(CARD_TRAIN_SCHEMES)} şema x "
+    print(f"[2/3] Kimlik kartı eğitim verisi ({len(CARD_TRAIN_SCHEMES)} şema x "
           f"{len(CARD_OCCLUDER_COLORS)} yama rengi x {len(COVERAGE_LEVELS)} kapsama)...")
     card_bbox = (0, 0, CARD_SIZE[0], CARD_SIZE[1])
     for scheme_name, scheme in CARD_TRAIN_SCHEMES.items():
@@ -147,6 +172,18 @@ def main():
                     X, Y = extract_labeled_blocks(bgr, card_bbox, patch_bbox)
                     X_train.extend(X)
                     Y_train.extend(Y)
+
+    # --- 3) VİNYETLİ (kapanmasız) kartlar — v3 düzeltmesi, TAMAMI label=0 ---
+    print(f"[3/3] Vinyet negatif örnekleri ({len(CARD_TRAIN_SCHEMES)} şema x "
+          f"{len(VIGNETTE_STRENGTHS)} vinyet şiddeti)...")
+    for scheme_name, scheme in CARD_TRAIN_SCHEMES.items():
+        for strength in VIGNETTE_STRENGTHS:
+            card_img = render_id_card(scheme, rng)
+            rgb_arr = apply_vignette(np.array(card_img), strength)
+            bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+            X, Y = extract_labeled_blocks(bgr, card_bbox, None)  # patch_bbox=None -> hepsi label=0
+            X_train.extend(X)
+            Y_train.extend(Y)
 
     X_train, Y_train = np.array(X_train), np.array(Y_train)
     print(f"\nToplam blok: {len(X_train)}, occluder oranı: {Y_train.mean():.3f}")
