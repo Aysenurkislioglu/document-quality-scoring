@@ -145,7 +145,10 @@ python3 app.py
 Arayüz, `src/scoring/fusion.py` üzerinden blur/darkness/skew/occlusion(ML)
 alt-skorlarını birleştirip tek bir 0-100 skor üretir; her modül kartının altında, o
 modülün **birden fazla yöntemi** varsa (örn. blur için Laplacian Variance vs. Tenengrad)
-bunların aynı görüntü üzerindeki karşılaştırması da gösterilir.
+bunların aynı görüntü üzerindeki karşılaştırması da gösterilir. Nihai skor **saf ortalama
+değildir** — en kötü modülün etkisi kasıtlı olarak büyütülür (`0.65×en_kötü + 0.35×
+ortalama`), tek bir ciddi sorun (örn. aşırı bulanıklık) diğer iyi skorların arasında
+gizlenmesin diye.
 
 > **Not:** Bu skor, etiketli gerçek veriyle kalibre edilmiş bir ML modelinin çıktısı
 > değildir; mevcut modüllerin ham metriklerinden türetilen geçici/sezgisel bir özettir.

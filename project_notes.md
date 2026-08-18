@@ -1203,3 +1203,31 @@ zaten düz/tek renkli değildir — bu yüzden pratik etkisi sınırlı kabul ed
 ve daha genel bir sorundu). Düz/tek-renk-kartla-benzer-tonlu occluder senaryosu, bilinen
 ve kabul edilen bir sınırlama olarak bırakıldı. Tam regresyon testinde (beyaz kağıt +
 kimlik kartı, web arayüzü üzerinden) hata yok.
+
+### Fusion — basit ortalamanın "tek kötü modülü gizleme" sorunu
+
+Kullanıcı: "her fotoğrafta kriterlere aynı ağırlık verildiği için aşırı bulanık bir
+fotoğrafın bulanıklık kademesinde düşük olmasına rağmen overall score'u çok yüksek
+çıkıyor." Bu, mimari bir eksiklikti — basit aritmetik ortalama, TEK bir modülün çok kötü
+olmasını diğer iyi modüllerin arasında "gizleyebiliyordu" (örn. blur=5, diğerleri
+~95-100 → ortalama ~75, "iyi" görünüyordu). Oysa aşırı bulanık bir belge, mükemmel
+aydınlatma/eğiklik ne olursa olsun OKUNAMAZ — "zincir en zayıf halkası kadar güçlüdür."
+
+**Düzeltme:** `src/scoring/fusion.py`'ye `_combine_scores()` eklendi — nihai skor artık
+`0.65 * en_kötü_modül + 0.35 * ortalama` (MIN_WEIGHT=0.65). Bu da (diğer tüm eşikler gibi)
+GERÇEK etiketli veriyle öğrenilmemiş, sezgisel bir seçimdir — gerçek ML regresyon katmanı
+bu ağırlığı veriden öğrenene kadar geçici bir düzeltme.
+
+**Doğrulama:** `ornek_gorseller/3_agir_bulanik.png` (blur=0, diğerleri iyi) skoru
+**56 → 19.6**'ya düştü (artık kesin "kötü" bandında, önceden "orta" bandındaydı) — tam
+kullanıcının işaret ettiği senaryo. Diğer örnekler de beklendiği gibi düştü (2_hafif_bulanik
+87→64, 4_karanlik 73→26, 5_egik 80→52) — hepsi gerçek, o görüntüde var olan bir zayıflığı
+yansıtıyor.
+
+**Yan bulgu (gerçek bir hata DEĞİL, doğrulandı):** Aynı formülle test edilen kimlik kartı
+mockup'ında (`card_001_mavi_gri_sev0.png`, hiç bozulma yok) skor 89'dan 69'a düştü —
+sebebi, mockup'ın "metin çubuklarını" gerçek harf yerine DÜZ RENKLİ dikdörtgenlerle
+çizmem, bu da Laplacian Variance'ı yapay olarak düşük gösteriyordu (blur=58, en kötü
+modül). Kullanıcıya soruldu: gerçek, net çekilmiş bir kimlik kartı fotoğrafında blur skoru
+ne çıkıyor? Cevap: "yüksek çıkıyor (80+), sorun yok" — yani bu, benim basit mockup'ımın bir
+sınırlamasıydı, gerçek sistemde/gerçek fotoğraflarda düzeltme gerektirmiyor.

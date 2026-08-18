@@ -154,6 +154,31 @@ def _log_linear_score(value: float, bad: float, good: float) -> float:
     return _linear_score(np.log1p(max(value, 0.0)), np.log1p(bad), np.log1p(good))
 
 
+# En kötü modülün nihai skora etkisini büyütmek için ortalamayla karışım
+# oranı. GEREKÇE: kullanıcı bildirdi — basit ortalamada, TEK bir modülün
+# (örn. blur) çok kötü olması, diğer modüller iyi olduğu için nihai skorda
+# "gizleniyordu" (örn. blur=5, diğerleri~95-100 -> basit ortalama ~75,
+# "iyi" görünüyordu). Gerçekte aşırı bulanık bir belge OKUNAMAZ hale gelir
+# — mükemmel aydınlatma/eğiklik bunu telafi edemez. Bu, klasik "zincir en
+# zayıf halkası kadar güçlüdür" ilkesi; MIN_WEIGHT=0.65 ile en kötü modül
+# baskın hale getiriliyor ama ortalama da (0.35) bir miktar pay alıyor
+# (tek bir modülün gürültüsüne karşı biraz yumuşatma). Bu da klasik/
+# sezgisel bir seçimdir — GERÇEK etiketli veriyle öğrenilmemiştir (bkz.
+# modül docstring'i); tam ML regresyon katmanı bu ağırlıkları veriden
+# öğrenene kadar geçici bir düzeltmedir.
+MIN_WEIGHT = 0.65
+
+
+def _combine_scores(scores: list) -> float:
+    """Basit ortalama yerine, en kötü modülü ağırlıklı olarak öne çıkarır.
+    bkz. MIN_WEIGHT."""
+    if not scores:
+        return 0.0
+    mean_score = sum(scores) / len(scores)
+    worst_score = min(scores)
+    return MIN_WEIGHT * worst_score + (1 - MIN_WEIGHT) * mean_score
+
+
 def score_blur(image: np.ndarray) -> Dict[str, object]:
     """Laplacian Variance tabanlı bulanıklık alt-skoru (yüksek=keskin=iyi).
 
@@ -272,12 +297,17 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
     """
     Bir belge görüntüsü için birleşik Document Quality Score (0-100) hesaplar.
 
-    blur/darkness/skew/occlusion her zaman ortalamaya dahildir. Glare ise
+    blur/darkness/skew/occlusion her zaman hesaba dahildir. Glare ise
     KOŞULLUDUR: yalnızca zemin RENKLİ ise (kimlik kartı/pasaport benzeri —
-    bkz. `has_colored_background`) ortalamaya katılır. Düz beyaz kağıt bu
+    bkz. `has_colored_background`) dahil edilir. Düz beyaz kağıt bu
     projenin kapsamı dışıdır (bkz. modül docstring'i) — bu durumda glare
     "uygulanamaz" (score=None) olarak işaretlenir, tahmini bir sayı
     üretilmez.
+
+    Nihai skor SAF ORTALAMA DEĞİLDİR — bkz. `_combine_scores`: en kötü
+    modülün etkisi kasıtlı olarak büyütülmüştür, tek bir modülün çok kötü
+    olması diğer iyi modüllerin arasında "gizlenmesin" diye (örn. aşırı
+    bulanık ama iyi aydınlatılmış bir belge, artık yüksek skor almaz).
 
     Args:
         image: BGR (OpenCV formatında) numpy array — tek bir belge fotoğrafı.
@@ -299,7 +329,7 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
     fused = [c["score"] for key, c in components.items() if key != "glare"]
     if glare.get("reliable"):
         fused.append(glare["score"])
-    overall = float(np.mean(fused))
+    overall = _combine_scores(fused)
 
     return {
         "overall_score": overall,
@@ -321,7 +351,11 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         "calibration_note": (
             "Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin "
             "çıktısı değildir; literatür + sentetik deneylerden esinlenen "
-            "geçici/sezgisel eşiklerle üretilmiştir (bkz. project_notes.md)."
+            "geçici/sezgisel eşiklerle üretilmiştir (bkz. project_notes.md). "
+            "Nihai skor basit bir ortalama DEĞİLDİR — en kötü modülün etkisi "
+            "kasıtlı olarak büyütülmüştür (bkz. src/scoring/fusion.py, "
+            "MIN_WEIGHT), tek bir ciddi sorun diğer iyi skorların arasında "
+            "gizlenmesin diye."
         ),
     }
 
