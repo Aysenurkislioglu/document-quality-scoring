@@ -885,3 +885,57 @@ ayırt edici özellik taşımaması, aynı bağlı bileşende birleşmesiydi. Oc
 "renk+doku özellikleriyle klasik ML" tarifinin PRENSİPTE işe yarayabileceğini gösteriyor,
 ama glare'de aynı tarifin işe yarayıp yaramayacağı HENÜZ TEST EDİLMEDİ — bu, sırada bekleyen
 bir sonraki deneme.
+
+### Glare ML denemesi (Random Forest, blok-bazlı) — KISMİ SONUÇ: temel sorunu çözemedi
+
+Occlusion'daki tarifle (16x16 blok, renk+doku özellikleri, Random Forest) aynı yöntem
+glare'e uygulandı. Farkı: glare'in sentetik üretiminde blob merkezi/sigma tam
+deterministik olduğu için (bkz. `experiments/glare/generate_glare_documents.py`,
+`sigma_for_target_area`), her görüntü için GERÇEK alpha (glare şiddeti) haritası yeniden
+hesaplanıp doğru etiketli eğitim verisi çıkarıldı — occlusion'daki gibi elle bir yama
+çizmeye gerek kalmadı, sentetik üretimin kendi zemin gerçeği kullanıldı.
+
+**Eğitim:** 8 belge, tüm severity seviyeleri, blok özellikleri = [ortalama parlaklık, std,
+Laplacian varyansı] (glare görüntüleri gri tonlamalı olduğu için occlusion'daki BGR renk
+özellikleri anlamsız, yalnızca doku/parlaklık kullanıldı). Etiket: bloğun merkezindeki
+gerçek alpha değeri > 0.5 ise "glare".
+
+**Sonuç — 4 görülmemiş belgede:**
+
+| Severity | 0 (glare yok) | 1 | 2 | 3 | 4 | 5 (en ağır) |
+|---|---|---|---|---|---|---|
+| Model "glare" oranı | **~0.36-0.38** | 0.044 | 0.077 | 0.128 | 0.187 | 0.276 |
+
+- **Severity 1→5 arası: rho = 1.0000 (mükemmel)** — model, parlama şiddetini gayet iyi
+  takip ediyor, "zaten bir miktar parlama var" varsayımı altında.
+- **Severity 0 (hiç parlama yok): hatalı-pozitif ~%36-38 — severity=5'in gerçek pozitif
+  oranından (%27.6) bile YÜKSEK.** Bu, üretime alınamayacak kadar ciddi bir kusur —
+  tertemiz bir belge, en ağır parlamalı belgeden daha "şüpheli" görünüyor.
+
+**Kök neden (blok özellik ortalamalarına bakılarak doğrulandı):**
+
+| | Ortalama parlaklık | Std (doku) | Laplacian varyansı |
+|---|---|---|---|
+| Gerçek glare blokları | 245.1 | 19.4 | 2357 |
+| Glare olmayan bloklar | 231.0 | 47.5 | 14726 |
+
+Model "düz ve parlak = glare" örüntüsünü öğrendi — ama bu tanım, belgenin DOĞAL beyaz
+kenar boşluklarına da birebir uyuyor (onlar da düz ve parlak). Tam doymuş bir glare
+bölgesi (alpha≈1) ile boş beyaz kağıt, piksel istatistiği açısından GERÇEKTEN özdeş —
+occlusion'da renk+doku özellik mühendisliği işe yaradı çünkü occluder ile arka plan
+FARKLI şeylerdi; glare'de "glare" ve "arka plan" aynı fiziksel görünüme (düz beyaz)
+yakınsıyor. Bu, bir mühendislik eksikliği değil, TEK KARE üzerinden bilgi kuramsal bir
+sınır — hiçbir özellik mühendisliği (klasik ya da ML) bunu çözemez.
+
+**Değerli çıkarım:** Bu, Rodin & Orlov (2019)'un neden yalnızca parlaklık/doku değil,
+**"stroke histogram"** (o bölgede normalde metin OLMASI beklenip beklenmediği — yani
+belge DÜZENİ bağlamı) da kullandığını somut biçimde açıklıyor. Bizim blok
+sınıflandırıcımız yalnızca kendi bloğuna bakıyor, "burada normalde metin olur muydu"
+sorusunun cevabını bilmiyor — bu, TEK bir bloğa izole bakan hiçbir yöntemin (klasik ya da
+ML) çözemeyeceği, belge düzeyinde bağlam (whole-image context) gerektiren bir soru.
+
+**Karar:** Bu model üretime ALINMADI (severity=0 hatalı-pozitifi kabul edilemez düzeyde).
+Glare için gerçekçi sıradaki adım hâlâ Aşama 3 (tam CNN, stroke-histogram/layout bağlamı
+dahil) — ama artık NEDEN yalnızca blok-bazlı/context'siz yöntemlerin (ne klasik ne ML)
+yeterli olmadığı üç ayrı denemeyle (HSV+CC, şekil filtresi, blok-bazlı RF) somut biçimde
+kanıtlanmış durumda.
