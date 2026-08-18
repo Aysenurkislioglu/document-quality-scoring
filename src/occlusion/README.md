@@ -65,3 +65,52 @@ tanımlı olmadığından, bu modül şu an yalnızca yapılandırılmış kimli
 uygulanmıştır. Genel/serbest metin occlusion tespiti (örn. nesne tespiti / segmentasyon)
 literatürün "ileri yöntem" olarak işaret ettiği ayrı bir konudur (bkz.
 `research/literature_review.md`, Bölüm 2.5).
+
+## Ek yöntem: Ten Rengi (Skin-Color) Tespiti — konumdan bağımsız
+
+`skin_detection.py`, yukarıdaki sınırlamayı KISMEN gideren, ayrı bir modüldür: belge
+üzerinde parmak/el ile kapatılmış bir bölgeyi, **konumunu önceden bilmeden** tespit etmeyi
+hedefler.
+
+**Yöntem:** Görüntü YCrCb renk uzayına çevrilir; ten rengine tipik olan Cr/Cb aralığında
+kalan piksel oranı hesaplanır (glare modülündeki HSV eşiklemesiyle aynı aile — bkz.
+`src/glare/metrics.py`). Y (parlaklık) kanalı kasıtlı olarak sınırlanmaz, çünkü ten farklı
+aydınlatmalarda geniş bir parlaklık aralığına yayılabilir; asıl ayırt edici sinyal Cr/Cb
+(renk) kanallarındadır.
+
+```
+Görüntü (BGR)
+     │
+     ▼
+YCrCb'ye çevir
+     │
+     ├── Cr kanalı [133, 173] aralığında  ┐
+     │                                     ├─►  Ten rengi adayı piksel
+     └── Cb kanalı [77, 127] aralığında    ┘
+     │
+     ▼
+Bağlı bileşen analizi (küçük gürültüyü ele)
+     │
+     ▼
+skin_occlusion_ratio = ten rengi alanı / toplam alan
+```
+
+**Doğrulama (bkz. `experiments/occlusion/generate_skin_occlusion_documents.py` ve
+`run_skin_experiment.py`):** 12 belge × 3 ten tonu (açık/orta/koyu) × 6 kapanma seviyesi
+(216 görüntü) üzerinde test edildi. Yama, konumu KASITLI OLARAK RASTGELE seçildi (yöntemin
+gerçekten konumdan bağımsız çalıştığını doğrulamak için).
+
+| Ten tonu | Spearman rho | Hatalı-pozitif (kapanma yokken) |
+|---|---|---|
+| Açık | 1.0000 | 0.0000 |
+| Orta | 1.0000 | 0.0000 |
+| Koyu | 1.0000 | 0.0000 |
+
+Üçü de mükemmel monoton ve sıfır hatalı-pozitif — bkz. `results/occlusion/skin_scores.csv`.
+
+**Bilinen sınırlama (henüz test edilmedi):** Bu doğrulama yalnızca SENTETİK, düz renkli
+(tek tonlu) dikdörtgen yamalarla yapıldı. Gerçek bir el/parmak fotoğrafında doku, gölgeler,
+eklem kıvrımları ve değişken aydınlatma vardır — bunlar test edilmedi. Ayrıca ten rengine
+yakın renkte gerçek arka plan nesneleri (örn. ahşap masa, bej duvar) gerçek fotoğraflarda
+hatalı-pozitife yol açabilir; bu senaryo da sentetik veri setinde yoktur. Bu yüzden
+`src/scoring/fusion.py` bu sinyali kullanırken bu sınırlamayı docstring'inde açıkça belirtir.

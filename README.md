@@ -63,16 +63,16 @@ izler: her bozulma türü için ayrı, **eğitim gerektirmeyen (training-free)**
         ┌────────────┬─────────────┼─────────────┬──────────────┐
         ▼             ▼             ▼             ▼              ▼
    ┌─────────┐  ┌───────────┐ ┌─────────┐  ┌───────────┐  ┌─────────────┐
-   │  Blur   │  │ Darkness  │ │  Skew   │  │  Glare    │  │  Occlusion  │
-   │ (keskin-│  │(aydınlat- │ │(eğiklik │  │(parlama,  │  │ (kapanma,   │
-   │  lik)   │  │  ma)      │ │ açısı)  │  │opsiyonel) │  │şablon gerek)│
+   │  Blur   │  │ Darkness  │ │  Skew   │  │Occlusion  │  │   Glare     │
+   │ (keskin-│  │(aydınlat- │ │(eğiklik │  │(ten rengi,│  │ (parlama,   │
+   │  lik)   │  │  ma)      │ │ açısı)  │  │ konumsuz) │  │ opsiyonel)  │
    └────┬────┘  └─────┬─────┘ └────┬────┘  └─────┬─────┘  └──────┬──────┘
         │             │            │             │               │
         └─────────────┴────────────┴─────────────┘               │
-                            │                          (yalnızca bilinen
-                            ▼                           alan şablonlarıyla,
-                  ┌───────────────────┐                 genel akışa dahil
-                  │  Feature Fusion    │                 değil — bkz. Sınırlamalar)
+                            │                            (varsayılan hariç —
+                            ▼                             güvenilmez bulundu,
+                  ┌───────────────────┐                   bkz. Sınırlamalar)
+                  │  Feature Fusion    │
                   │ (src/scoring/      │
                   │   fusion.py)       │
                   └─────────┬──────────┘
@@ -82,6 +82,9 @@ izler: her bozulma türü için ayrı, **eğitim gerektirmeyen (training-free)**
                 │        (0–100)          │
                 └────────────────────────┘
 ```
+
+*(Not: Occlusion'ın OCR/alan-bazlı bileşeni — "Belge No" gibi bilinen şablon alanları için
+— bu genel diyagrama dahil değildir; yalnızca şablonu bilinen belgelerde ayrıca çalıştırılır.)*
 
 Her modül önce **bağımsız olarak** geliştirilip sentetik, kontrollü bozulma verisiyle
 doğrulanır (`experiments/`); doğrulanan modüller ancak sonra `src/scoring/fusion.py`
@@ -95,7 +98,7 @@ doğrulanır (`experiments/`); doğrulanan modüller ancak sonra `src/scoring/fu
 | **Darkness** | Global istatistik, percentile analizi, blok-bazlı yerel analiz | ✅ Doğrulandı |
 | **Skew** | Hough Transform, Projection Profile | ✅ Doğrulandı |
 | **Glare** | HSV eşikleme + Connected Components | ⚠️ Baseline yetersiz bulundu |
-| **Occlusion** | OCR + beklenen alan deseni karşılaştırması | ✅ Doğrulandı (kapsamı sınırlı) |
+| **Occlusion** | OCR + beklenen alan deseni (şablon gerekir) **+** YCrCb ten rengi tespiti (konumdan bağımsız) | ✅ Doğrulandı |
 | **Feature Fusion** | Ağırlıklı/doğrusal normalizasyon birleşimi | 🚧 İlk sürüm tamamlandı |
 
 Her modülün yöntem seçimi, matematiksel gerekçesi ve bilinen sınırlamaları için ilgili
@@ -139,16 +142,18 @@ python3 app.py
 # tarayıcıda http://127.0.0.1:5000 aç
 ```
 
-Arayüz, `src/scoring/fusion.py` üzerinden blur/darkness/skew alt-skorlarını birleştirip
-tek bir 0-100 skor üretir; her modül kartının altında, o modülün **birden fazla
-yöntemi** varsa (örn. blur için Laplacian Variance vs. Tenengrad) bunların aynı görüntü
-üzerindeki karşılaştırması da gösterilir.
+Arayüz, `src/scoring/fusion.py` üzerinden blur/darkness/skew/occlusion(ten rengi)
+alt-skorlarını birleştirip tek bir 0-100 skor üretir; her modül kartının altında, o
+modülün **birden fazla yöntemi** varsa (örn. blur için Laplacian Variance vs. Tenengrad)
+bunların aynı görüntü üzerindeki karşılaştırması da gösterilir.
 
 > **Not:** Bu skor, etiketli gerçek veriyle kalibre edilmiş bir ML modelinin çıktısı
 > değildir; mevcut modüllerin ham metriklerinden türetilen geçici/sezgisel bir özettir.
-> Glare, kendi deneylerinde ~%85 hatalı-pozitif oranı verdiği için varsayılan olarak
-> nihai skora dahil edilmez. Occlusion, önceden bilinen alan şablonu gerektirdiğinden bu
-> genel akışa dahil değildir. Detay için [Bilinen Sınırlamalar](#bilinen-sınırlamalar).
+> Glare, kendi deneylerinde ~%85 hatalı-pozitif oranı verdiği için (ve bir düzeltme
+> denemesi de başarısız olduğu için) varsayılan olarak nihai skora dahil edilmez.
+> Occlusion'ın OCR tabanlı, alan-bazlı bileşeni önceden bilinen şablon gerektirdiğinden bu
+> genel akışa dahil değildir — ama konumdan bağımsız ten rengi tespiti dahildir. Detay için
+> [Bilinen Sınırlamalar](#bilinen-sınırlamalar).
 
 ### Deneyleri çalıştırma
 
@@ -242,7 +247,8 @@ Spearman korelasyonu (rho) ile raporlanır. Öne çıkan bulgular:
 | Darkness | En karanlık blok ortalaması | rho ≈ −0.83 (lokal senaryoda) | `results/darkness/scores_local.csv` |
 | Skew | Hough Transform | MAE ≈ 0.91° | `results/skew/scores.csv` |
 | Skew | Projection Profile | MAE ≈ 1.82° | `results/skew/scores.csv` |
-| Occlusion | length_ratio | rho ≈ −0.97 | `results/occlusion/scores.csv` |
+| Occlusion | length_ratio (alan-bazlı, OCR) | rho ≈ −0.97 | `results/occlusion/scores.csv` |
+| Occlusion | skin_occlusion_ratio (konumdan bağımsız) | rho = 1.00 (3 ten tonunda da), hatalı-pozitif = 0 | `results/occlusion/skin_scores.csv` |
 | Glare | naive_glare_ratio | rho = 1.00, **ancak** severity=0'da ~%85 hatalı-pozitif | `results/glare/false_positive_baseline.csv` |
 
 Glare satırındaki çelişki kasıtlı olarak vurgulanmıştır: yöntem *bozulma arttıkça*
@@ -261,14 +267,18 @@ Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler iç
 | 2. Blur | ✅ Tamamlandı | Font boyutuna duyarlılık bilinen bir sınırlama |
 | 3. Darkness | ✅ Tamamlandı | Blok-bazlı analiz, global ortalamanın kaçırdığı lokal karanlığı yakalıyor |
 | 3. Skew | ✅ Tamamlandı | Hough, az-metinli belgelerde Projection Profile'dan daha istikrarlı |
-| 4. Occlusion | ✅ Tamamlandı | Yalnızca yapılandırılmış (şablonu bilinen) alanlarla sınırlı |
-| 4. Glare | ⚠️ Yetersiz bulundu | HSV+CC baseline'ı, beyaz kağıt ile glare'i ayırt edemiyor |
-| 5. Feature Fusion + Web arayüzü | 🚧 İlk sürüm tamamlandı | Kalibrasyon eşikleri henüz gerçek etiketli veriyle doğrulanmadı |
+| 4. Occlusion (alan-bazlı) | ✅ Tamamlandı | Yalnızca yapılandırılmış (şablonu bilinen) alanlarla sınırlı |
+| 4. Occlusion (ten rengi) | ✅ Tamamlandı | Konumdan bağımsız; yalnızca sentetik düz-renk yamalarla doğrulandı |
+| 4. Glare | ⚠️ Yetersiz bulundu | HSV+CC baseline'ı, beyaz kağıt ile glare'i ayırt edemiyor; şekil-filtresi düzeltmesi de denendi ve başarısız oldu |
+| 5. Feature Fusion + Web arayüzü | 🚧 v1.1 (kalibrasyon düzeltmeli) | Kalibrasyon eşikleri henüz gerçek etiketli veriyle doğrulanmadı |
 | 6. Nihai rapor | ⏳ Başlanmadı | Tüm modüller ve kalibrasyon netleştiğinde ayrı bir adımda yazılacak |
 
 **Açık noktalar (Aşama 5+ için):**
 - Tüm alt-skorların ortak bir yöne (yüksek = iyi) normalize edildiğinin doğrulanması.
-- Glare modülünün düzeltilmesi ya da kalıcı olarak füzyon dışı bırakılması.
+- Glare modülünün CNN tabanlı bir yaklaşıma (Rodin & Orlov, 2019) taşınması ya da kalıcı
+  olarak füzyon dışı bırakılması — klasik post-processing denendi, işe yaramadı.
+- Ten rengi tabanlı occlusion tespitinin gerçek (sentetik olmayan) fotoğraflarla,
+  farklı ışık koşulları ve ten-rengi-benzeri arka planlarla yeniden doğrulanması.
 - Normalizasyon eşiklerinin gerçek, etiketli (sentetik olmayan) veriyle kalibrasyonu.
 - Tüm modüllerin gerçek belge fotoğrafları üzerinde yeniden doğrulanması.
 
@@ -278,11 +288,14 @@ Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler iç
   normalizasyon eşikleri, literatür ve sentetik deney gözlemlerinden esinlenen
   geçici/sezgisel değerlerdir; gerçek etiketli veriyle öğrenilmemiştir.
 - **Glare modülü mevcut haliyle güvenilmez** — hiç parlama olmayan görüntülerde bile
-  ~%85 oranında yanlış alarm üretir (beyaz kağıt ile glare'i ayırt edemiyor). Varsayılan
-  olarak nihai skora dahil edilmez.
-- **Occlusion modülü yalnızca yapılandırılmış alanlarda çalışır** — konumu ve beklenen
-  formatı önceden bilinen alanlar (örn. "Belge No") gerektirir; serbest metin veya
-  genel/rastgele yüklenen belgelerde otomatik çalışmaz.
+  ~%85 oranında yanlış alarm üretir (beyaz kağıt ile glare'i ayırt edemiyor); bunu
+  düzeltmeye yönelik bir şekil-filtresi denemesi de gerçek veriyle test edilip
+  başarısız bulundu (bkz. `project_notes.md`). Varsayılan olarak nihai skora dahil edilmez.
+- **Occlusion modülünün OCR/alan-bazlı bileşeni yalnızca yapılandırılmış alanlarda
+  çalışır** — konumu ve beklenen formatı önceden bilinen alanlar (örn. "Belge No")
+  gerektirir. Ten rengi tabanlı bileşen konumdan bağımsızdır ama yalnızca sentetik,
+  düz renkli yamalarla doğrulanmıştır — gerçek el/parmak dokusu, farklı aydınlatma ve
+  ten-rengi-benzeri arka plan nesneleri henüz test edilmemiştir.
 - **Tüm doğrulama sentetik veri üzerinde yapılmıştır.** Gerçek (taranmış/fotoğraflanmış)
   belgelerle yeniden doğrulama henüz yapılmamıştır.
 

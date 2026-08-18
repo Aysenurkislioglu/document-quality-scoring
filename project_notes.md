@@ -749,3 +749,78 @@ düzeltildi:
 `fusion.py` docstring'inin baştan beri uyardığı nokta. Kalıcı çözüm hâlâ yukarıdaki ML
 regresyon planı; bu düzeltme yalnızca v1'in kendi içinde daha az yanıltıcı olmasını
 sağlıyor, "gerçek kalibrasyon" iddiası taşımıyor.
+
+### Glare Aşama 1 denemesi — DENENDİ, ÇALIŞMADI (negatif sonuç, kayıt altında)
+
+Yukarıdaki "hangi yöntemi kullanmalıyız" tartışmasında önerilen "Aşama 1: şekil filtresi"
+(gerçek parlamanın yuvarlak/kompakt, satır-arası boşlukların ince/uzun şerit olduğu
+varsayımıyla `connected components` çıktısına compactness + kenara-değme filtresi ekleme)
+uygulanıp gerçek sentetik veriyle test edildi.
+
+**Sonuç:** `results/glare/degraded/manifest.csv` üzerinde severity=0 (glare yok) hatalı-
+pozitif oranını %84.87'den %0.97'ye düşürdü — ilk bakışta büyük başarı gibi göründü. Ama
+severity=5 (en güçlü glare, hedef alan %22) üzerinde test edilince gerçek pozitifin de
+neredeyse tamamen silindiği görüldü: eski maske content_bbox içinde 193.998 piksel
+işaretliyordu (hedefin ~4 katı, aşırı işaretleme), filtreli maske yalnızca 777 piksel
+işaretledi (hedefin ~%1.6'sı — aşırı silme).
+
+**Kök neden:** Gerçek glare lekesi ile arka plan boşluğu, bu eşiklerde (V≥235, S≤35) AYNI
+bağlı bileşene (connected component) düşüyor — çünkü content_bbox içindeki beyaz alan
+zaten çoğunlukla bu eşiği geçiyor, glare lekesi bu "denizin" içinde ayrı bir ada değil,
+onunla kaynaşmış durumda. Şekil filtresi bu TEK dev bileşene bakıyor, onu ya tamamen kabul
+ediyor ya tamamen reddediyor — ikisini ayıramıyor. Morfolojik açma (opening, kernel 3-15
+arası denendi) da neredeyse hiçbir şeyi değiştirmedi çünkü sorun "ince şeritler" değil,
+sayfanın büyük kısmının zaten HSV eşiğinde beyaz görünmesi.
+
+**Bu, `src/glare/README.md`'nin baştan beri belgelediği sınırlamayı somut veriyle
+doğruluyor:** gerçek glare ile beyaz kağıt, bu renk uzayında hiçbir ayırt edici ÖZELLİK
+(ne renk ne şekil) taşımıyor. Klasik post-processing (şekil, morfoloji) ile çözülebilecek
+bir problem değil — literatürün (Rodin & Orlov, 2019) neden doğrudan öğrenilmiş/CNN tabanlı
+bir yaklaşıma gittiği bu denemeyle bir kez daha teyit edildi.
+
+**Karar:** Bu denemenin kodu geri alındı (repo'da yarım/yanıltıcı bir "düzeltme" olarak
+kalmasın diye) — `src/glare/metrics.py` denemeden önceki haline döndürüldü. Glare için
+gerçekçi bir sonraki adım doğrudan Aşama 3'e (CNN tabanlı blok sınıflandırma) geçmek; ara
+bir "ucuz" çözüm bulunamadı.
+
+### Occlusion Aşama 1 — Ten Rengi Tespiti: DENENDİ, ÇALIŞTI (pozitif sonuç)
+
+Glare'in aksine, occlusion için önerilen "Aşama 1: ten rengi (skin-color) tespiti" gerçek
+sentetik veriyle test edildi ve doğrulandı.
+
+**Uygulama:** `src/occlusion/skin_detection.py` — YCrCb renk uzayında ten rengi eşiklemesi
++ bağlı bileşen gürültü temizliği. Mevcut OCR tabanlı occlusion yönteminden (`metrics.py`)
+FARKI: konumu önceden bilmeye ihtiyaç duymaz, belgenin herhangi bir yerinde çalışır.
+
+**Doğrulama deneyi:** `experiments/occlusion/generate_skin_occlusion_documents.py` (12
+belge × 3 ten tonu × 6 kapanma seviyesi = 216 görüntü, yama konumu KASITLI RASTGELE) +
+`run_skin_experiment.py`. Sonuç:
+
+| Ten tonu | Spearman rho | Hatalı-pozitif (coverage=0) | Dynamic range |
+|---|---|---|---|
+| Açık | 1.0000 | 0.0000 | 0.00 → 1.00 |
+| Orta | 1.0000 | 0.0000 | 0.00 → 1.00 |
+| Koyu | 1.0000 | 0.0000 | 0.00 → 1.00 |
+
+Üç ton için de mükemmel monoton, sıfır hatalı-pozitif — bkz. `results/occlusion/
+skin_scores.csv`, `skin_monotonicity_by_tone.csv`, `plots/skin_detection_by_tone.png`.
+
+**Neden glare'den farklı sonuç verdi?** Glare'de sorun, gerçek sinyal (parlama) ile
+hatalı-pozitif kaynağının (beyaz kağıt) AYNI HSV bölgesinde, birbirinden AYRILAMAZ şekilde
+iç içe geçmiş olmasıydı. Burada durum farklı: belge arka planı (beyaz/gri, düşük
+saturasyon) ile ten rengi (YCrCb'de belirgin, dar bir Cr/Cb aralığı) renk uzayında GERÇEKTEN
+AYRIK — üst üste binmiyor. Yani aynı "renk eşikleme" tekniği, ayırt edici bir özellik
+gerçekten var olduğunda işe yarıyor; yoktuğunda (glare) yaramıyor. Bu iki deney birlikte,
+"yöntem seçiminin veriye bakmadan güvenilemeyeceği" dersini iki yönde de (başarı VE
+başarısızlık) somutlaştırıyor.
+
+**Entegrasyon:** `src/scoring/fusion.py`'ye `score_occlusion_skin` olarak eklendi ve
+varsayılan olarak nihai skora DAHİL edildi (glare'in aksine — çünkü bu, glare gibi
+kanıtlanmış şekilde bozuk değil, tersine kanıtlanmış şekilde çalışıyor). Web arayüzüne
+("Kapanma (el/parmak)" modülü) de eklendi.
+
+**Kalan sınırlama (dürüstlük notu):** Doğrulama yalnızca düz renkli sentetik yamalarla
+yapıldı — gerçek el/parmak dokusu, gölge, farklı aydınlatma ve ten-rengi-benzeri arka plan
+nesneleri (ahşap masa vb.) HENÜZ test edilmedi. Bu, diğer tüm modüllerin de paylaştığı
+"yalnızca sentetik veride doğrulandı" sınırlamasıyla aynı kategoride — gerçek fotoğraflarla
+yeniden doğrulama hâlâ genel açık nokta listesinde.

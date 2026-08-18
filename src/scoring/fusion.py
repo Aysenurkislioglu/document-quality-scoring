@@ -14,12 +14,23 @@ yapılmalıdır — bkz. project_notes.md, "Bir sonraki adım".
 Kapsam dışı bırakılanlar:
 - Glare: project_notes.md'de baseline'ın (HSV+CC) yetersiz bulunduğu
   belgelenmiştir (severity=0'da bile ~%85 false-positive glare oranı —
-  bkz. results/glare/false_positive_baseline.csv). Bu yüzden varsayılan
-  olarak nihai skora KATILMAZ; yalnızca bilgi amaçlı ayrıca hesaplanır.
-- Occlusion: yöntem yalnızca ÖNCEDEN BİLİNEN, yapılandırılmış alanlar için
-  çalışır (örn. "Belge No" alanının tam konumu/beklenen uzunluğu bilinmeli).
-  Genel/rastgele yüklenen bir belge fotoğrafında bu bilgi mevcut olmadığından
-  bu genel akışa dahil edilmemiştir.
+  bkz. results/glare/false_positive_baseline.csv). Ayrıca bir "şekil filtresi"
+  düzeltmesi denenmiş, gerçek veriyle test edilmiş ve BAŞARISIZ olduğu
+  görülmüştür (bkz. project_notes.md, "Glare Aşama 1 denemesi"). Bu yüzden
+  varsayılan olarak nihai skora KATILMAZ; yalnızca bilgi amaçlı hesaplanır.
+
+Kapsamı GENİŞLETİLENLER:
+- Occlusion: OCR tabanlı yöntem (metrics.py) hâlâ yalnızca ÖNCEDEN BİLİNEN,
+  yapılandırılmış alanlarda (örn. "Belge No") çalışır ve bu genel akışa dahil
+  değildir. Ancak KONUMDAN BAĞIMSIZ bir ek sinyal eklendi: ten rengi (skin-
+  color) tabanlı tespit (skin_detection.py) — parmak/el ile kapatılmış
+  BİLİNMEYEN konumdaki alanları yakalar. Sentetik veriyle (3 ten tonu, 216
+  görüntü) doğrulanmıştır: rho=1.00, hatalı-pozitif=0 (bkz.
+  results/occlusion/skin_scores.csv). Bu yüzden varsayılan olarak nihai
+  skora DAHİL edilir — ama yalnızca SENTETİK, düz renkli yamalarla test
+  edildiğini unutmayın; gerçek el/parmak dokusu, farklı aydınlatma ve
+  ten-rengi-benzeri arka plan nesneleri (örn. ahşap masa) henüz test
+  edilmedi.
 """
 
 from __future__ import annotations
@@ -31,6 +42,7 @@ import numpy as np
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
 from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean
 from src.glare.metrics import glare_ratio, glare_score
+from src.occlusion.skin_detection import skin_occlusion_ratio
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
 
 # Heuristik normalizasyon sınırları — bu değerde ve ötesi = 0 puan, bu değerde
@@ -138,6 +150,22 @@ def score_glare(image: np.ndarray) -> Dict[str, object]:
     }
 
 
+def score_occlusion_skin(image: np.ndarray) -> Dict[str, object]:
+    """Ten rengi tabanlı occlusion alt-skoru (yüksek=kapanma yok=iyi).
+
+    Konumdan bağımsız çalışır (bkz. src/occlusion/skin_detection.py). Sentetik
+    veriyle doğrulanmıştır (rho=1.00, 3 ten tonu) ama YALNIZCA gerçek fotoğraf
+    değil, düz renkli sentetik yamalarla — bkz. modül docstring'indeki
+    "Kapsamı GENİŞLETİLENLER" notu.
+    """
+    ratio = skin_occlusion_ratio(image)
+    return {
+        "raw_value": ratio,
+        "raw_label": "skin_occlusion_ratio",
+        "score": _linear_score(ratio, 1.0, 0.0),  # oran 0=iyi(100 puan), 1=kötü(0 puan)
+    }
+
+
 def compute_document_quality_score(
     image: np.ndarray, include_glare: bool = False
 ) -> Dict[str, object]:
@@ -157,12 +185,18 @@ def compute_document_quality_score(
         "blur": score_blur(image),
         "darkness": score_darkness(image),
         "skew": score_skew(image),
+        "occlusion_skin": score_occlusion_skin(image),
     }
 
     glare = score_glare(image)
     components["glare"] = glare
 
-    fused = [components["blur"]["score"], components["darkness"]["score"], components["skew"]["score"]]
+    fused = [
+        components["blur"]["score"],
+        components["darkness"]["score"],
+        components["skew"]["score"],
+        components["occlusion_skin"]["score"],
+    ]
     if include_glare:
         fused.append(glare["score"])
 
@@ -173,9 +207,11 @@ def compute_document_quality_score(
         "components": components,
         "glare_included_in_overall": include_glare,
         "occlusion_note": (
-            "Occlusion modülü yalnızca önceden bilinen, yapılandırılmış alanlar "
-            "(örn. 'Belge No') için çalışır; bu genel yüklemede otomatik "
-            "uygulanmadı."
+            "Ten rengi tabanlı occlusion sinyali (occlusion_skin) dahil "
+            "edildi — konumdan bağımsız çalışır, parmak/el benzeri kapanmayı "
+            "yakalar. Ancak OCR tabanlı, alan-bazlı occlusion yöntemi "
+            "(örn. 'Belge No' doğrulaması) hâlâ yalnızca önceden bilinen "
+            "şablonlarla çalışır; bu genel yüklemede uygulanmadı."
         ),
         "calibration_note": (
             "Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin "
@@ -251,6 +287,16 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
             "note": (
                 "Bu modülde şu an tek yöntem var, karşılaştırma yok. "
                 "Kendisi de project_notes.md'de yetersiz bulunmuş durumda."
+            ),
+        },
+        "occlusion_skin": {
+            "methods": {"YCrCb ten rengi eşiklemesi (skin_occlusion_ratio)": skin_occlusion_ratio(image)},
+            "used_in_overall": "YCrCb ten rengi eşiklemesi (skin_occlusion_ratio)",
+            "note": (
+                "Bu modülde şu an tek yöntem var, karşılaştırma yok. Konumdan "
+                "bağımsız çalışır — OCR tabanlı occlusion yönteminin (yalnızca "
+                "bilinen alanlarda çalışan) tersine, belgenin HERHANGİ bir "
+                "yerinde ten rengi arar."
             ),
         },
     }
