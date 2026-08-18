@@ -108,9 +108,33 @@ gerçekten konumdan bağımsız çalıştığını doğrulamak için).
 
 Üçü de mükemmel monoton ve sıfır hatalı-pozitif — bkz. `results/occlusion/skin_scores.csv`.
 
-**Bilinen sınırlama (henüz test edilmedi):** Bu doğrulama yalnızca SENTETİK, düz renkli
-(tek tonlu) dikdörtgen yamalarla yapıldı. Gerçek bir el/parmak fotoğrafında doku, gölgeler,
-eklem kıvrımları ve değişken aydınlatma vardır — bunlar test edilmedi. Ayrıca ten rengine
-yakın renkte gerçek arka plan nesneleri (örn. ahşap masa, bej duvar) gerçek fotoğraflarda
-hatalı-pozitife yol açabilir; bu senaryo da sentetik veri setinde yoktur. Bu yüzden
-`src/scoring/fusion.py` bu sinyali kullanırken bu sınırlamayı docstring'inde açıkça belirtir.
+**Bilinen sınırlama:** Bu yöntem yalnızca SABİT bir ten rengi (YCrCb) aralığını arar —
+sticker, kumaş, plastik gibi farklı renk/dokudaki kapanmaları TANIM GEREĞİ kaçırır. Bu
+sınırlama, aşağıdaki ML tabanlı yöntemle giderildi.
+
+## Ek yöntem 2: ML (Random Forest) Tespiti — renkten de bağımsız
+
+`ml_detection.py`, yukarıdaki ten rengi yönteminin genelleştirilmiş hâlidir: sabit bir renk
+aralığı yerine, her 16×16'lık bloğun renk (kanal ortalaması) + doku (kanal std'si, Laplacian
+varyansı) özelliklerine bakıp önceden eğitilmiş bir Random Forest ile "normal kağıt/metin
+yüzeyi mi, yabancı nesne mi?" sorusunu sorar. `src/scoring/fusion.py` artık bunu kullanıyor
+(ten rengi yöntemi hâlâ kodda, karşılaştırma amaçlı).
+
+**Eğitim:** `experiments/occlusion/train_occlusion_classifier.py` — 14 farklı renk (ten
+rengi HARİÇ) × düz/dokulu varyant × 5 kapsama seviyesi, ~3.5 milyon etiketli blok.
+
+**Doğrulama (asıl kritik test):** `experiments/occlusion/run_ml_experiment.py`, modeli
+EĞİTİMDE HİÇ GÖRMEDİĞİ 5 renkte (3 ten tonu + turkuaz + lacivert), hem düz hem dokulu
+varyantlarda test eder — amaç, modelin renkleri ezberlemediğini, gerçekten renk+doku
+örüntüsünü öğrendiğini kanıtlamak.
+
+| Görülmemiş renk | Düz — rho | Dokulu — rho |
+|---|---|---|
+| Açık/orta/koyu ten, turkuaz, lacivert (5 renk) | 1.0000 | 1.0000 |
+
+10 kombinasyonun hepsinde mükemmel monotonluk, hatalı-pozitif = 0 (bkz.
+`results/occlusion/ml_scores.csv`).
+
+**Kalan sınırlama (değişmeyen):** Doğrulama yine yalnızca sentetik, düz/gürültülü
+dikdörtgen yamalarla yapıldı — gerçek el/parmak fotoğrafının çok daha karmaşık dokusu
+(deri kıvrımları, gölge, gerçek 3D şekil) henüz test edilmedi.

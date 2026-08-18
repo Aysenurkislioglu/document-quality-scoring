@@ -19,5 +19,8 @@ pytesseract>=0.3.10
 # --- Web arayüzü (Aşama 5 — basit skorlayıcı demo) ---
 Flask>=3.0
 
-# --- İleri fazlarda eklenecek (henüz kullanılmıyor) ---
-# scikit-learn      # ML skor füzyonu (Aşama 5) için
+# --- Occlusion Aşama 2: ML tabanlı, renkten bağımsız kapanma tespiti ---
+scikit-learn>=1.4
+joblib>=1.3
+# Not: eğitilmiş model src/occlusion/models/occlusion_rf.joblib olarak repo'da
+# tutuluyor; yeniden eğitmek için experiments/occlusion/train_occlusion_classifier.py

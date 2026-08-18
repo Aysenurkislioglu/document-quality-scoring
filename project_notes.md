@@ -824,3 +824,64 @@ yapıldı — gerçek el/parmak dokusu, gölge, farklı aydınlatma ve ten-rengi
 nesneleri (ahşap masa vb.) HENÜZ test edilmedi. Bu, diğer tüm modüllerin de paylaştığı
 "yalnızca sentetik veride doğrulandı" sınırlamasıyla aynı kategoride — gerçek fotoğraflarla
 yeniden doğrulama hâlâ genel açık nokta listesinde.
+
+### Occlusion Aşama 2 — Klasik ML (Random Forest) ile renkten bağımsız genelleme
+
+Kullanıcı sorusu: "occlusion farklı renk ve dokularda da çalışmalı, glare hâlâ sıkıntılı —
+ML/DL uygulanırsa ikisi de gelişir mi?" Ortamda `sklearn`/`torch`/`tensorflow` kurulu
+değildi; karar: önce hafif `scikit-learn` ile klasik ML denenip, işe yaramazsa ağır bir
+derin öğrenme yatırımına (PyTorch) geçilecek.
+
+**Occlusion için sonuç: DENENDİ, ÇALIŞTI, ENTEGRE EDİLDİ.**
+
+Aşama 1'in (ten rengi/YCrCb) sınırlaması: yalnızca SABİT bir renk aralığı arıyordu —
+sticker, kumaş, plastik gibi farklı renk/dokudaki kapanmaları tanım gereği kaçırırdı.
+
+**Uygulama:** `src/occlusion/ml_detection.py` — görüntü 16x16 bloklara ayrılır, her blok
+için renk (kanal ortalaması) + doku (kanal std'si, gri std, Laplacian varyansı) özellikleri
+çıkarılır; bir Random Forest (200 ağaç) her bloğu "normal kağıt/metin yüzeyi" veya "yabancı
+nesne" olarak sınıflandırır.
+
+**Eğitim** (`experiments/occlusion/train_occlusion_classifier.py`): 14 renk (kırmızı, yeşil,
+mavi, sarı, mor, turuncu, gri tonları, siyah, pembe, kahve, bordo, zeytin, krem — TEN RENGİ
+KASITLI OLARAK DIŞARIDA) x 12 belge x 5 kapsama seviyesi x 2 doku varyantı (düz/gürültülü)
+= 1680 görüntü, ~3.5 milyon etiketli blok. Model: `src/occlusion/models/occlusion_rf.joblib`.
+
+**Doğrulama** (`experiments/occlusion/run_ml_experiment.py`) — asıl kritik test: modelin
+EĞİTİMDE HİÇ GÖRMEDİĞİ 5 renkte (açık/orta/koyu ten tonu + turkuaz + lacivert), hem düz hem
+dokulu varyantlarda, farklı belgelerde (farklı random seed) test edildi:
+
+| Görülmemiş renk | Düz — rho | Dokulu — rho |
+|---|---|---|
+| Açık ten | 1.0000 | 1.0000 |
+| Orta ten | 1.0000 | 1.0000 |
+| Koyu ten | 1.0000 | 1.0000 |
+| Turkuaz | 1.0000 | 1.0000 |
+| Lacivert | 1.0000 | 1.0000 |
+
+10 kombinasyonun HEPSİNDE mükemmel monotonluk, hatalı-pozitif (coverage=0) = 0.0000 (bkz.
+`results/occlusion/ml_scores.csv`, `ml_monotonicity.csv`, `plots/ml_generalization.png`).
+Model gerçekten renk+doku örüntüsünü öğrendi, belirli renkleri ezberlemedi.
+
+**Entegrasyon:** `src/scoring/fusion.py`'de `score_occlusion_skin` → `score_occlusion`
+olarak değiştirildi, `ml_occlusion_ratio` kullanıyor (eskiden `skin_occlusion_ratio`).
+`skin_detection.py` kod tabanında bırakıldı (daha basit/hızlı bir alternatif olarak,
+`compare_module_methods` üzerinden karşılaştırmalı gösteriliyor) ama artık füzyonda
+KULLANILMIYOR. Web arayüzündeki modül adı "Kapanma (el/parmak)"ten "Kapanma"ya
+sadeleştirildi (artık yalnızca el/parmak değil, herhangi bir yabancı nesneyi hedefliyor).
+
+**Kalan sınırlama (değişmeyen dürüstlük notu):** Doğrulama yine yalnızca sentetik, PIL ile
+çizilmiş düz/gürültülü dikdörtgen yamalarla yapıldı. Gerçek el/parmak fotoğrafında doku çok
+daha karmaşıktır (deri kıvrımları, tırnak, gölge, kısmi saydamlık yok ama gerçek 3D şekil
+var) — bu still test edilmedi. Model + deney kodu tamamen tekrar üretilebilir olduğu için,
+gerçek etiketli veri geldiğinde aynı `train_occlusion_classifier.py` iskeleti üzerine
+kolayca yeniden eğitilebilir.
+
+### Glare için ML denemesi — SONRAKI ADIM (bu oturumda başlanmadı)
+
+Occlusion'ın aksine glare'de daha önce iki klasik CV denemesi (HSV+CC baseline VE şekil
+filtresi) başarısız olmuştu — kök sebep, gerçek parlama ile beyaz kağıdın renkte HİÇBİR
+ayırt edici özellik taşımaması, aynı bağlı bileşende birleşmesiydi. Occlusion'daki başarı,
+"renk+doku özellikleriyle klasik ML" tarifinin PRENSİPTE işe yarayabileceğini gösteriyor,
+ama glare'de aynı tarifin işe yarayıp yaramayacağı HENÜZ TEST EDİLMEDİ — bu, sırada bekleyen
+bir sonraki deneme.

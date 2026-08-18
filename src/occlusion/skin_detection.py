@@ -1,22 +1,29 @@
 """
 Ten rengi (skin-color) tabanlı occlusion tespiti — KONUMDAN BAĞIMSIZ.
 
+DURUM: Bu, "Occlusion Aşama 1" denemesiydi ve doğrulandı (rho=1.00, 3 ten
+tonu — bkz. results/occlusion/skin_scores.csv). Ancak ml_detection.py
+(Aşama 2) bunun GENELLEŞTİRİLMİŞ hâlidir — yalnızca ten rengine değil,
+HERHANGİ bir renk/dokudaki kapanmaya genelleyebiliyor (bkz. o modülün
+docstring'i) — bu yüzden `src/scoring/fusion.py` artık BUNU DEĞİL,
+ml_detection.py'yi kullanıyor. Bu dosya, daha basit/hızlı bir alternatif
+olarak ve karşılaştırma amaçlı (bkz. fusion.py: compare_module_methods)
+kodda tutuluyor.
+
 `metrics.py`'deki OCR tabanlı yöntem yalnızca konumu ve beklenen formatı
 ÖNCEDEN BİLİNEN alanlarda (örn. "Belge No") çalışır. Bu modül, belgenin
 HERHANGİ bir yerinde parmak/el ile kapatılmış bir bölgeyi — konumunu
-bilmeden — yakalamayı hedefler. Gerekçe için project_notes.md, "Occlusion
-Aşama 1" bölümüne bakınız.
+bilmeden — yakalamayı hedefler.
 
 Yöntem: YCrCb renk uzayında klasik ten rengi eşiklemesi + bağlı bileşen
 gürültü temizliği (glare modülündeki HSV eşiklemesiyle aynı aile).
 
-ÖNEMLİ — DOĞRULAMA DURUMU: Bu yöntem, glare modülündeki başarısız "şekil
-filtresi" denemesinden ders alınarak, ENTEGRE EDİLMEDEN ÖNCE sentetik
-veriyle doğrulanmıştır (bkz. experiments/occlusion/run_skin_experiment.py
-ve results/occlusion/skin_scores.csv). Bilinen sınırlama: literatürdeki
-genel uyarıyla tutarlı olarak, farklı ten tonlarında ve aydınlatma
-koşullarında güvenilirliği değişebilir — bkz. deney sonuçlarındaki ton
-bazlı kırılım.
+DOĞRULAMA: glare modülündeki başarısız "şekil filtresi" denemesinden ders
+alınarak, ENTEGRE EDİLMEDEN ÖNCE sentetik veriyle doğrulanmıştır (bkz.
+experiments/occlusion/run_skin_experiment.py ve
+results/occlusion/skin_scores.csv). Bilinen sınırlama: yalnızca SABİT bir
+ten rengi aralığını arar — farklı renk/dokudaki (sticker, kumaş, plastik)
+kapanmaları TANIM GEREĞİ kaçırır; bu yüzden ml_detection.py tercih edildi.
 """
 
 from __future__ import annotations

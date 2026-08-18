@@ -22,15 +22,22 @@ Kapsam dışı bırakılanlar:
 Kapsamı GENİŞLETİLENLER:
 - Occlusion: OCR tabanlı yöntem (metrics.py) hâlâ yalnızca ÖNCEDEN BİLİNEN,
   yapılandırılmış alanlarda (örn. "Belge No") çalışır ve bu genel akışa dahil
-  değildir. Ancak KONUMDAN BAĞIMSIZ bir ek sinyal eklendi: ten rengi (skin-
-  color) tabanlı tespit (skin_detection.py) — parmak/el ile kapatılmış
-  BİLİNMEYEN konumdaki alanları yakalar. Sentetik veriyle (3 ten tonu, 216
-  görüntü) doğrulanmıştır: rho=1.00, hatalı-pozitif=0 (bkz.
-  results/occlusion/skin_scores.csv). Bu yüzden varsayılan olarak nihai
-  skora DAHİL edilir — ama yalnızca SENTETİK, düz renkli yamalarla test
-  edildiğini unutmayın; gerçek el/parmak dokusu, farklı aydınlatma ve
-  ten-rengi-benzeri arka plan nesneleri (örn. ahşap masa) henüz test
-  edilmedi.
+  değildir. Ancak KONUMDAN VE RENKTEN BAĞIMSIZ bir ek sinyal eklendi: blok-
+  bazlı ML sınıflandırıcı (ml_detection.py, Random Forest) — parmak/el/
+  sticker/kumaş gibi HERHANGİ bir yabancı nesneyle kapatılmış BİLİNMEYEN
+  konumdaki alanları yakalar. Bu, önce denenen ve yalnızca ten rengine
+  sınırlı olan skin_detection.py'nin genelleştirilmiş hâlidir (o modül hâlâ
+  kodda duruyor ama fusion.py artık ML sürümünü kullanıyor).
+
+  Doğrulama: 14 renk (ten tonu HARİÇ) ile eğitilip, 5 GÖRÜLMEMİŞ renkte
+  (3 ten tonu + turkuaz + lacivert), hem DÜZ hem DOKULU/gürültülü
+  varyantlarda test edildi (bkz. results/occlusion/ml_scores.csv). Sonuç:
+  10 kombinasyonun HEPSİNDE rho=1.00, hatalı-pozitif=0. Model gerçekten
+  renk+doku örüntüsünü öğrendi, belirli renkleri ezberlemedi. Bu yüzden
+  varsayılan olarak nihai skora DAHİL edilir — ama yine de yalnızca
+  SENTETİK yamalarla test edildiğini unutmayın; gerçek el/parmak dokusu,
+  gölgeler, eklem kıvrımları ve gerçek fotoğraf koşulları henüz test
+  edilmedi (bkz. project_notes.md, "Occlusion Aşama 2").
 """
 
 from __future__ import annotations
@@ -42,6 +49,7 @@ import numpy as np
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
 from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean
 from src.glare.metrics import glare_ratio, glare_score
+from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
 
@@ -150,18 +158,19 @@ def score_glare(image: np.ndarray) -> Dict[str, object]:
     }
 
 
-def score_occlusion_skin(image: np.ndarray) -> Dict[str, object]:
-    """Ten rengi tabanlı occlusion alt-skoru (yüksek=kapanma yok=iyi).
+def score_occlusion(image: np.ndarray) -> Dict[str, object]:
+    """ML tabanlı occlusion alt-skoru (yüksek=kapanma yok=iyi).
 
-    Konumdan bağımsız çalışır (bkz. src/occlusion/skin_detection.py). Sentetik
-    veriyle doğrulanmıştır (rho=1.00, 3 ten tonu) ama YALNIZCA gerçek fotoğraf
-    değil, düz renkli sentetik yamalarla — bkz. modül docstring'indeki
-    "Kapsamı GENİŞLETİLENLER" notu.
+    Konumdan VE renkten bağımsız çalışır (bkz. src/occlusion/ml_detection.py).
+    Sentetik veriyle doğrulanmıştır: 5 GÖRÜLMEMİŞ renk/doku kombinasyonunun
+    hepsinde rho=1.00, hatalı-pozitif=0 (bkz. results/occlusion/ml_scores.csv)
+    — ama yalnızca sentetik yamalarla, bkz. modül docstring'indeki "Kapsamı
+    GENİŞLETİLENLER" notu.
     """
-    ratio = skin_occlusion_ratio(image)
+    ratio = ml_occlusion_ratio(image)
     return {
         "raw_value": ratio,
-        "raw_label": "skin_occlusion_ratio",
+        "raw_label": "ml_occlusion_ratio",
         "score": _linear_score(ratio, 1.0, 0.0),  # oran 0=iyi(100 puan), 1=kötü(0 puan)
     }
 
@@ -185,7 +194,7 @@ def compute_document_quality_score(
         "blur": score_blur(image),
         "darkness": score_darkness(image),
         "skew": score_skew(image),
-        "occlusion_skin": score_occlusion_skin(image),
+        "occlusion": score_occlusion(image),
     }
 
     glare = score_glare(image)
@@ -195,7 +204,7 @@ def compute_document_quality_score(
         components["blur"]["score"],
         components["darkness"]["score"],
         components["skew"]["score"],
-        components["occlusion_skin"]["score"],
+        components["occlusion"]["score"],
     ]
     if include_glare:
         fused.append(glare["score"])
@@ -207,11 +216,12 @@ def compute_document_quality_score(
         "components": components,
         "glare_included_in_overall": include_glare,
         "occlusion_note": (
-            "Ten rengi tabanlı occlusion sinyali (occlusion_skin) dahil "
-            "edildi — konumdan bağımsız çalışır, parmak/el benzeri kapanmayı "
-            "yakalar. Ancak OCR tabanlı, alan-bazlı occlusion yöntemi "
-            "(örn. 'Belge No' doğrulaması) hâlâ yalnızca önceden bilinen "
-            "şablonlarla çalışır; bu genel yüklemede uygulanmadı."
+            "ML tabanlı occlusion sinyali (blok-bazlı Random Forest) dahil "
+            "edildi — konumdan VE renkten bağımsız çalışır, parmak/el/sticker "
+            "gibi herhangi bir yabancı nesneyi yakalar. Ancak OCR tabanlı, "
+            "alan-bazlı occlusion yöntemi (örn. 'Belge No' doğrulaması) hâlâ "
+            "yalnızca önceden bilinen şablonlarla çalışır; bu genel "
+            "yüklemede uygulanmadı."
         ),
         "calibration_note": (
             "Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin "
@@ -289,14 +299,20 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
                 "Kendisi de project_notes.md'de yetersiz bulunmuş durumda."
             ),
         },
-        "occlusion_skin": {
-            "methods": {"YCrCb ten rengi eşiklemesi (skin_occlusion_ratio)": skin_occlusion_ratio(image)},
-            "used_in_overall": "YCrCb ten rengi eşiklemesi (skin_occlusion_ratio)",
+        "occlusion": {
+            "methods": {
+                "ML — blok-bazlı Random Forest (ml_occlusion_ratio)": ml_occlusion_ratio(image),
+                "YCrCb ten rengi eşiklemesi (skin_occlusion_ratio)": skin_occlusion_ratio(image),
+            },
+            "used_in_overall": "ML — blok-bazlı Random Forest (ml_occlusion_ratio)",
             "note": (
-                "Bu modülde şu an tek yöntem var, karşılaştırma yok. Konumdan "
-                "bağımsız çalışır — OCR tabanlı occlusion yönteminin (yalnızca "
-                "bilinen alanlarda çalışan) tersine, belgenin HERHANGİ bir "
-                "yerinde ten rengi arar."
+                "İkisi de konumdan bağımsız çalışır (OCR tabanlı yöntemin "
+                "aksine, belgenin HERHANGİ bir yerinde arar). ML sürümü, "
+                "yalnızca ten rengine değil HERHANGİ bir renk/dokudaki "
+                "kapanmaya genelleyebildiği için (5 görülmemiş renk/dokuda "
+                "rho=1.00 — bkz. results/occlusion/ml_scores.csv) füzyonda "
+                "kullanılan budur; ten rengi yöntemi daha basit/hızlı ama "
+                "yalnızca ten rengiyle sınırlıdır."
             ),
         },
     }

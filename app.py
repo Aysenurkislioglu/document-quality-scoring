@@ -34,7 +34,7 @@ MODULE_LABELS = {
     "blur": ("Bulanıklık", "Yüksek skor = keskin/net görüntü"),
     "darkness": ("Aydınlatma", "Yüksek skor = yeterince aydınlık"),
     "skew": ("Eğiklik", "Yüksek skor = belge düz, az eğik"),
-    "occlusion_skin": ("Kapanma (el/parmak)", "Yüksek skor = ten rengi tespit edilmedi"),
+    "occlusion": ("Kapanma", "Yüksek skor = yabancı nesne (el/sticker/vb.) tespit edilmedi"),
     "glare": ("Parlama", "Güvenilmez — yalnızca bilgi amaçlı"),
 }
 
@@ -50,7 +50,7 @@ def handle_too_large(_error):
             image_data_uri=None,
             include_glare=False,
             module_labels=MODULE_LABELS,
-            module_order=["blur", "darkness", "skew", "occlusion_skin", "glare"],
+            module_order=["blur", "darkness", "skew", "occlusion", "glare"],
         ),
         413,
     )
@@ -110,7 +110,7 @@ def index():
         image_data_uri=image_data_uri,
         include_glare=include_glare,
         module_labels=MODULE_LABELS,
-        module_order=["blur", "darkness", "skew", "occlusion_skin", "glare"],
+        module_order=["blur", "darkness", "skew", "occlusion", "glare"],
     )
 
 
