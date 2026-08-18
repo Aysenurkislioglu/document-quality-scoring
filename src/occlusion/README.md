@@ -138,3 +138,21 @@ varyantlarda test eder — amaç, modelin renkleri ezberlemediğini, gerçekten 
 **Kalan sınırlama (değişmeyen):** Doğrulama yine yalnızca sentetik, düz/gürültülü
 dikdörtgen yamalarla yapıldı — gerçek el/parmak fotoğrafının çok daha karmaşık dokusu
 (deri kıvrımları, gölge, gerçek 3D şekil) henüz test edilmedi.
+
+## v2 düzeltmesi: "belgenin kendi rengi" bağlamı (renkli kimlik kartları için kritik)
+
+Gerçek kimlik kartı testinde bulunan bir hata: model, hiç kapanma OLMAYAN renkli bir
+kimlik kartının tamamını (%95-99 oranında) "yabancı nesne" sanıyordu — çünkü yalnızca
+düz beyaz/gri zeminle eğitilmişti, kartın kendi renkli tasarımını hiç görmemişti.
+
+Düzeltme: her bloğa, o bloğun renginin **belgenin kendi medyan (baskın) rengine** ne
+kadar uzak olduğunu ölçen yeni bir özellik (`color_dist_from_doc_median`) eklendi;
+eğitim verisine renkli kimlik kartı örnekleri (occlusion'lı + occlusion'sız) eklendi.
+
+**Doğrulama** (`experiments/occlusion/run_id_card_experiment.py`), eğitimde hiç
+görülmeyen 3 kart renk şemasında: hatalı-pozitif neredeyse sıfıra indi (0.002-0.12),
+gerçek-pozitif rho=1.0000 (3/3 şemada). Beyaz kağıt regresyon testinde 10 kombinasyondan
+9'u hâlâ mükemmel; **bilinen bir sınırlama**: %100 (tam) kapanmada, medyan hesaplaması
+yamanın kendisi tarafından "ele geçirilebiliyor" (döngüsel bir zafiyet) — %0-80 aralığında
+(gerçekçi senaryo) sorun yok. Detay için `project_notes.md`, "Occlusion — renkli zeminde
+bulundu ve düzeltildi kritik bir hata".

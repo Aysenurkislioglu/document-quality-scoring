@@ -1031,3 +1031,47 @@ sadeleştirildi, artık yalnızca `glare_ratio`'yu (renkli zeminde kullanılan y
 Bu, `glare_ml_ratio`/`ml_detection.py`'nin (v1-v5 denemeleri) kod olarak SİLİNMESİ değil —
 hâlâ `src/glare/ml_detection.py`'de duruyor, tarihsel/gelecekte referans için — sadece
 ana skorlama akışından çıkarıldı.
+
+### Occlusion — renkli zeminde bulundu ve düzeltildi kritik bir hata
+
+Kullanıcı gerçek kimlik kartı görselleri yüklemeye başlayınca bildirdi: **"belgenin
+tamamı kapanmasa bile oran 0 veriliyor."** Doğrulandı: `ml_occlusion_ratio`, hiç kapanma
+OLMAYAN kimlik kartı görsellerinde (`card_001_mavi_gri_sev0.png` vb.) **0.95-0.99**
+döndürüyordu (score=(1-ratio)*100 formülüyle bu, occlusion skorunu ~0'a düşürüyordu —
+kullanıcının gördüğü tam olarak buydu).
+
+**Kök neden:** Occlusion ML modeli (bkz. "Occlusion Aşama 2") yalnızca DÜZ BEYAZ/GRİ
+zeminli belgelerle eğitilmişti — eğitimde gördüğü HER renkli piksel bir "occluder"
+etiketliydi (çünkü sentetik eğitimde renkli olan tek şey, elle eklenen yamalardı). Gerçek
+bir kimlik kartı yükleyince, kartın kendi TASARIMININ TAMAMI (fotoğraf, renkli zemin) aynı
+mantıkla "yabancı nesne" sayıldı. Bu, glare'in "beyaz kağıt" sorunuyla AYNI AİLEDEN bir
+hata: model yalnızca MUTLAK renge bakıyordu, belgenin KENDİ tipik renginin ne olduğunu
+hiç bilmiyordu.
+
+**Düzeltme (v2 — bağlamsal özellik):** `src/occlusion/ml_detection.py`'ye yeni bir özellik
+eklendi: `color_dist_from_doc_median` — her bloğun rengi, o BELGENİN KENDİ medyan (baskın)
+renginden ne kadar uzak olduğu. `experiments/occlusion/train_occlusion_classifier.py`
+yeniden eğitim verisine RENKLİ kimlik kartı örnekleri eklendi (5 kart şeması × hem
+occlusion'sız hem 14 farklı renkte occlusion'lı, hem düz hem dokulu) — model artık "bu
+blok kartın kendi renk şemasına mı uyuyor, yoksa gerçekten farklı mı" ayrımını öğreniyor.
+
+**Doğrulama** (`experiments/occlusion/run_id_card_experiment.py`) — EĞİTİMDE HİÇ
+GÖRÜLMEYEN 3 kart renk şemasında (lila, sarı-krem, turkuaz) × 3 görülmemiş yama renginde:
+
+| Kart şeması | Hatalı-pozitif (coverage=0) | Gerçek-pozitif rho |
+|---|---|---|
+| Lila | 0.0023 | 1.0000 |
+| Sarı-krem | 0.1175 (kalıntı, ama eskiki ~0.95-0.99'a göre büyük iyileşme) | 1.0000 |
+| Turkuaz | 0.0022 | 1.0000 |
+
+**Regresyon kontrolü** (`run_ml_experiment.py`, beyaz kağıt): 10 kombinasyondan 9'u hâlâ
+rho=1.0000; yalnızca "turkuaz (düz)" rho=0.07'ye düştü — incelendi, sebebi **%100
+kapanmada** medyan hesaplamasının yama tarafından "ele geçirilmesi" (yama, tüm alanı
+kapladığında kendisi "belgenin baskın rengi" haline geliyor, kendi kendini meşrulaştırıyor).
+%0-80 kapanma aralığında (gerçekçi senaryo) sorun yok — yalnızca aşırı uç (tam kapanma)
+durumunda döngüsel bir zafiyet var. Bu, bilinen ve kabul edilen bir sınırlama olarak
+bırakıldı; ana (çok daha zararlı) hatayı düzeltmenin maliyeti bu dar kapsamlı geri adım.
+
+**Karar:** Yeni model (`src/occlusion/models/occlusion_rf.joblib`) üretime alındı. Web
+arayüzünde gerçek zamanlı test edildi, hem kimlik kartı hem beyaz kağıt örnekleri
+sorunsuz.
