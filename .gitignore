@@ -10,3 +10,10 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# İSTİSNA — ornek_gorseller/: yukarıdaki kuralın bilinçli istisnasıdır.
+# data/synthetic/ ile aynı script'lerden üretilen TÜM sentetik veri seti
+# commit edilmiyor (büyük, script'le anında yeniden üretilebilir); ama bu
+# klasördeki 6 küçük (~370 KB), elle seçilmiş örnek görsel, web arayüzünü
+# (app.py) kurulumdan hemen sonra deneyebilmek için kasıtlı olarak repo'da
+# tutuluyor — bkz. README.md, "Web arayüzü".

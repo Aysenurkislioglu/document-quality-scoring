@@ -33,11 +33,19 @@ from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mea
 from src.glare.metrics import glare_ratio, glare_score
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
 
-# Heuristik normalizasyon sınırları: (bu değerde ve ötesi = 0 puan, bu değerde
-# ve ötesi = 100 puan). Kaynak: research/literature_review.md + results/ altındaki
-# deney çıktıları (örn. blur/scores.csv'deki gözlemlenen değer aralıkları).
-BLUR_BAD, BLUR_GOOD = 20.0, 300.0          # laplacian_variance
-DARKNESS_BAD, DARKNESS_GOOD = 40.0, 180.0  # darkest_block_mean
+# Heuristik normalizasyon sınırları — bu değerde ve ötesi = 0 puan, bu değerde
+# ve ötesi = 100 puan. results/*/scores.csv'deki GERÇEK ölçülmüş dağılımlara göre
+# kalibre edilmiştir (bkz. project_notes.md, "Aşama 5: Feature Fusion — Kalibrasyon
+# Düzeltmesi" — önceki sürümdeki keyfi sabitlerin sebep olduğu satürasyon hatası
+# için). Yine de GERÇEK ETİKETLİ VERİYLE öğrenilmiş değildir — bkz. modül docstring'i.
+BLUR_BAD, BLUR_GOOD = 1.0, 6000.0          # laplacian_variance (LOG ölçekte, aşağıya bkz.)
+DARKNESS_BAD, DARKNESS_GOOD = 50.0, 110.0  # darkest_block_mean (block_size=16 ile)
+DARKNESS_BLOCK_SIZE = 16  # experiments/darkness/run_experiment.py ile AYNI olmalı —
+# küçük (~105x26px) kimlik alanlarını yakalamak için deneyde bilinçli olarak
+# fonksiyonun varsayılanından (32) küçük seçilmiş. Bu proje bu değeri
+# görmezden gelip varsayılanı kullanmıştı; sonuç, küçük lokal karanlık
+# bölgelerin komşu aydınlık piksellerle "sulanıp" gizlenmesiydi (bkz.
+# project_notes.md, kalibrasyon düzeltmesi notu).
 SKEW_BAD, SKEW_GOOD = 20.0, 0.0            # |açı|, derece (ters yönlü: 0=iyi)
 
 
@@ -55,19 +63,49 @@ def _linear_score(value: float, bad: float, good: float) -> float:
     return 100.0 * t
 
 
+def _log_linear_score(value: float, bad: float, good: float) -> float:
+    """`_linear_score` ile aynı, ama önce log1p ile logaritmik ölçeğe taşır.
+
+    Laplacian Variance gibi metrikler bozulma şiddeti arttıkça DOĞRUSAL değil,
+    yaklaşık ÜSTEL biçimde küçülür (results/blur/scores.csv'de severity 0→8
+    arası 8287 → 1.3 gibi, birkaç büyüklük mertebesi kat eden bir düşüş).
+    Böyle bir metriği doğrudan doğrusal ölçeklemek, en hafif bozulmalarda bile
+    skorun anında 0/100'e "satüre olmasına" (yapışmasına) yol açar — bu
+    projede tam olarak yaşanmış, tespit edilip düzeltilmiş bir hatadır (bkz.
+    project_notes.md). log1p, büyük değerleri sıkıştırıp küçük değerlere daha
+    fazla "yer" açarak orta şiddetlerde de anlamlı ayrım sağlar.
+    """
+    return _linear_score(np.log1p(max(value, 0.0)), np.log1p(bad), np.log1p(good))
+
+
 def score_blur(image: np.ndarray) -> Dict[str, object]:
-    """Laplacian Variance tabanlı bulanıklık alt-skoru (yüksek=keskin=iyi)."""
+    """Laplacian Variance tabanlı bulanıklık alt-skoru (yüksek=keskin=iyi).
+
+    Log ölçekte normalize edilir — bkz. `_log_linear_score` docstring'i.
+    """
     variance = laplacian_variance(image)
     return {
         "raw_value": variance,
         "raw_label": "laplacian_variance",
-        "score": _linear_score(variance, BLUR_BAD, BLUR_GOOD),
+        "score": _log_linear_score(variance, BLUR_BAD, BLUR_GOOD),
     }
 
 
 def score_darkness(image: np.ndarray) -> Dict[str, object]:
-    """En karanlık blok ortalaması tabanlı karanlık alt-skoru (yüksek=aydınlık=iyi)."""
-    dbm = darkest_block_mean(image)
+    """En karanlık blok ortalaması tabanlı karanlık alt-skoru (yüksek=aydınlık=iyi).
+
+    BİLİNEN SINIRLAMA: darkest_block_mean, metin yoğunluğuyla karışır (koyu
+    mürekkep pikselleri yoğun bir blok, gerçek bir aydınlatma sorunu olmasa
+    bile düşük ortalama üretir) — results/darkness/scores_local.csv'de HİÇ
+    karartma uygulanmamış (severity=0) belgelerde bile bu değerin 52-168
+    arasında değiştiği gözlemlenmiştir. Aşağıdaki eşikler bu gerçek dağılıma
+    göre kalibre edilmiştir, ama bu confound (karışma) tamamen çözülmüş
+    değildir — font/metin yoğunluğu çok yüksek temiz bir belge yine de düşük
+    puan alabilir. Kalıcı çözüm, project_notes.md'de planlanan ML regresyon
+    katmanının bunu diğer özelliklerle (örn. metin yoğunluğu) birlikte
+    öğrenmesidir.
+    """
+    dbm = darkest_block_mean(image, block_size=DARKNESS_BLOCK_SIZE)
     return {
         "raw_value": dbm,
         "raw_label": "darkest_block_mean",
@@ -160,7 +198,7 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
     fonksiyon yalnızca TEK bir yüklenen görüntü için hızlı bir özet sağlar.
     """
     blur_all = compute_all_blur_metrics(image)
-    darkness_all = compute_all_darkness_metrics(image)
+    darkness_all = compute_all_darkness_metrics(image, block_size=DARKNESS_BLOCK_SIZE)
 
     hough_angle = estimate_skew_hough(image)
     projection_angle = estimate_skew_projection_profile(image)

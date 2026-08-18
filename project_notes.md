@@ -715,3 +715,37 @@ noktası sağlar — manuel etiketlemeye gerek kalmadan modeli eğitmeye başlan
 **Karar durumu:** Bu, bir mimari YÖN kararıdır; ML regresyon katmanının implementasyonu ve
 gerçek veri toplama/etiketleme henüz YAPILMADI. Glare'in CNN tabanlı yeniden yazımı da henüz
 başlanmadı — bu notta yalnızca hangi yöne gidileceği kayıt altına alındı.
+
+### Kalibrasyon düzeltmesi (v1 → v1.1)
+
+v1'in canlıya alınmasından kısa süre sonra, `fusion.py`'nin ürettiği skorlar `results/`
+altındaki gerçek deney verisiyle karşılaştırılarak denetlendi. Üç somut hata bulundu ve
+düzeltildi:
+
+1. **Blur skoru çok erken satüre oluyordu.** `BLUR_GOOD=300` sabiti veriye bakılmadan
+   tahmin edilmişti; oysa `results/blur/scores.csv`'de severity=2 (belirgin bulanık)
+   belgelerin ortalama Laplacian Variance'ı bile 521 — yani "belirgin bulanık" bir belge
+   dahi 100/100 alıyordu. **Kök neden:** Laplacian Variance, blur şiddeti arttıkça
+   DOĞRUSAL değil ÜSTEL azalıyor (severity 0→8 arası 8287→1.3, birkaç büyüklük
+   mertebesi). Çözüm: doğrusal normalizasyon yerine log1p-ölçekli normalizasyon
+   (`_log_linear_score`) — artık severity 0→8 arası skor 100→2 şeklinde düzgün,
+   kademeli düşüyor.
+2. **Darkness skoru temiz belgeleri haksız yere düşük gösterebiliyordu.**
+   `DARKNESS_GOOD=180` tahminiydi; gerçekte HİÇ karartma uygulanmamış (severity=0)
+   belgelerin darkest_block_mean'i ortalama yalnızca 101.6 (metin yoğunluğu/mürekkep
+   piksellerinden kaynaklanan doğal bir alt sınır). Eşikler gerçek severity=0..5
+   dağılımına göre (50/110) yeniden kalibre edildi.
+3. **(En ince olanı) `fusion.py`, deneyde doğrulanmış `block_size=16` yerine
+   fonksiyonun varsayılanı `block_size=32`'yi kullanıyordu.** `experiments/darkness/
+   run_experiment.py`, küçük (~105x26px) kimlik alanlarını yakalamak için bilinçli
+   olarak 16 kullanmıştı (bkz. Darkness modül notları); `fusion.py` bunu miras almamıştı.
+   Sonuç: küçük, lokalize karanlık bölgeler komşu aydınlık piksellerle "sulanıp"
+   gizleniyordu. Somut örnek: `ornek_gorseller/4_karanlik.png` (yoğun lokal karartma
+   içeren bir test görüntüsü) düzeltmeden önce genel skor **97** (neredeyse mükemmel)
+   alıyordu; düzeltmeden sonra **64**'e düştü ve darkness alt-skoru artık deneydeki
+   (`results/darkness/scores_local.csv`) ham değerle (51.08) birebir eşleşiyor.
+
+**Çıkarım:** Bu üç hata da "eşiği elle tahmin etmenin" somut riskini gösteriyor — tam da
+`fusion.py` docstring'inin baştan beri uyardığı nokta. Kalıcı çözüm hâlâ yukarıdaki ML
+regresyon planı; bu düzeltme yalnızca v1'in kendi içinde daha az yanıltıcı olmasını
+sağlıyor, "gerçek kalibrasyon" iddiası taşımıyor.

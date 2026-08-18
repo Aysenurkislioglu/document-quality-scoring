@@ -23,6 +23,7 @@ import base64
 import cv2
 import numpy as np
 from flask import Flask, render_template, request
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from src.scoring.fusion import compare_module_methods, compute_document_quality_score
 
@@ -35,6 +36,23 @@ MODULE_LABELS = {
     "skew": ("Eğiklik", "Yüksek skor = belge düz, az eğik"),
     "glare": ("Parlama", "Güvenilmez — yalnızca bilgi amaçlı"),
 }
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(_error):
+    """16 MB üst sınırı aşan yüklemelerde Werkzeug'un varsayılan/İngilizce hata
+    sayfası yerine, mevcut şablonu kullanan anlaşılır bir Türkçe mesaj göster."""
+    return (
+        render_template(
+            "index.html",
+            result={"error": "Dosya çok büyük (üst sınır: 16 MB). Daha küçük bir görüntü dene."},
+            image_data_uri=None,
+            include_glare=False,
+            module_labels=MODULE_LABELS,
+            module_order=["blur", "darkness", "skew", "glare"],
+        ),
+        413,
+    )
 
 
 def _verdict(overall: float) -> tuple[str, str]:
