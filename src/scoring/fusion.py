@@ -56,6 +56,7 @@ from __future__ import annotations
 
 from typing import Dict
 
+import cv2
 import numpy as np
 
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
@@ -64,6 +65,34 @@ from src.glare.metrics import glare_ratio, has_colored_background
 from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
+
+# Tüm blok boyutları (BLOCK_SIZE=16 vb.) ve mutlak eşikler (BLUR_GOOD=6000 vb.)
+# sentetik belgelerin ~850x1100 piksel ölçeğine göre kalibre edildi (bkz.
+# experiments/_common/synthetic_documents.py PAGE_SIZE ve
+# experiments/glare/generate_id_card_documents.py CARD_SIZE). GERÇEK telefon
+# fotoğrafları çok daha yüksek çözünürlüktedir (örn. 3000-6000px) — bu ölçek
+# uyumsuzluğu, kullanıcı testinde somut olarak keşfedildi: aynı sentetik
+# görüntü yalnızca büyütülerek test edildiğinde bile blur/darkness skorları
+# 0'a çöküyordu (16x16'lık sabit bir blok, yüksek çözünürlükte gerçek
+# belgenin çok küçük/anlamsız bir parçasını kapsıyor). Çözüm: her görüntüyü,
+# HERHANGİ bir metrik hesaplanmadan ÖNCE, kalibrasyonun yapıldığı ölçeğe
+# normalize etmek.
+_TARGET_LONG_SIDE = 1100
+
+
+def _normalize_scale(image: np.ndarray) -> np.ndarray:
+    """Görüntüyü, uzun kenarı `_TARGET_LONG_SIDE` olacak şekilde yeniden
+    boyutlandırır (en-boy oranı korunur). Zaten yakın ölçekteyse dokunmaz."""
+    h, w = image.shape[:2]
+    long_side = max(h, w)
+    if long_side == 0:
+        return image
+    scale = _TARGET_LONG_SIDE / long_side
+    if abs(scale - 1.0) < 0.05:
+        return image
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    new_w, new_h = max(1, round(w * scale)), max(1, round(h * scale))
+    return cv2.resize(image, (new_w, new_h), interpolation=interp)
 
 # Heuristik normalizasyon sınırları — bu değerde ve ötesi = 0 puan, bu değerde
 # ve ötesi = 100 puan. results/*/scores.csv'deki GERÇEK ölçülmüş dağılımlara göre
@@ -229,6 +258,7 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         dict: overall_score, components (her modül için ham değer + alt-skor),
         ve kapsam notları.
     """
+    image = _normalize_scale(image)
     glare = score_glare(image)
     components: Dict[str, Dict[str, object]] = {
         "blur": score_blur(image),
@@ -280,6 +310,7 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
     results/<modül>/scores.csv ve results/<modül>/plots/ altındadır — bu
     fonksiyon yalnızca TEK bir yüklenen görüntü için hızlı bir özet sağlar.
     """
+    image = _normalize_scale(image)
     blur_all = compute_all_blur_metrics(image)
     darkness_all = compute_all_darkness_metrics(image, block_size=DARKNESS_BLOCK_SIZE)
 

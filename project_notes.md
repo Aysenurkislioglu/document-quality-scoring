@@ -1075,3 +1075,35 @@ bırakıldı; ana (çok daha zararlı) hatayı düzeltmenin maliyeti bu dar kaps
 **Karar:** Yeni model (`src/occlusion/models/occlusion_rf.joblib`) üretime alındı. Web
 arayüzünde gerçek zamanlı test edildi, hem kimlik kartı hem beyaz kağıt örnekleri
 sorunsuz.
+
+### Kritik hata: çözünürlük bağımlılığı — gerçek fotoğraflarda skor 49-51'e kilitleniyordu
+
+Kullanıcı: "kalite oranı neredeyse hepsinde 49-51 arası çıkıyor." Kök neden bulundu ve
+düzeltildi.
+
+**Kök neden:** TÜM blok boyutları (BLOCK_SIZE=16 vb.) ve mutlak eşikler (BLUR_GOOD=6000
+vb.), sentetik belgelerin sabit ~850x1100 (metin belgesi) / 856x540 (kimlik kartı) piksel
+ölçeğine göre kalibre edilmişti. Gerçek telefon fotoğrafları bundan KATBEKAT büyük
+çözünürlüktedir (örn. 3000-6000px). Doğrulama: aynı sentetik görüntü yalnızca
+`cv2.resize` ile büyütülerek test edildiğinde bile (içerik AYNI, yalnızca çözünürlük
+farklı) blur ve darkness skorları sürekli düşerek 0'a çöküyordu (77.8 → 61.7 → 57.9) —
+çünkü 16x16'lık sabit bir blok, yüksek çözünürlükte belgenin anlamsız derecede küçük bir
+parçasını kapsıyor (örn. tek bir karakterin bir kısmı), ve Laplacian Variance gibi
+mutlak-ölçekli metrikler çözünürlükle birlikte kayıyor.
+
+**Düzeltme:** `src/scoring/fusion.py`'ye `_normalize_scale()` eklendi —
+`compute_document_quality_score` ve `compare_module_methods`'ın EN BAŞINDA, HERHANGİ bir
+metrik hesaplanmadan ÖNCE, her görüntü uzun kenarı ~1100px olacak şekilde (en-boy oranı
+korunarak) yeniden boyutlandırılıyor — yani kalibrasyonun yapıldığı ölçeğe normalize
+ediliyor.
+
+**Doğrulama:** Aynı test görüntüsü 850x540 → 3000x1900 → 6000x3800 arasında büyütülüp
+tekrar test edildi. Düzeltmeden ÖNCE: 77.8 → 61.7 → 57.9 (çöküyor). Düzeltmeden SONRA:
+70.6 → 70.0 → 70.0 (kararlı, çözünürlükten bağımsız). Tüm örnek görsellerle (beyaz kağıt
++ kimlik kartı) tam regresyon testi yapıldı, hata yok.
+
+**Not:** Hedef ölçek (1100px) blur/skew'in kalibre edildiği metin belgesi ölçeğinden
+(PAGE_SIZE max=1100) alındı; kimlik kartının kendi native ölçeği (CARD_SIZE max=856) ile
+tam örtüşmüyor — bu yüzden "orijinal boyuttaki" kimlik kartı görüntüsü bile hafifçe
+büyütülüyor. Bu, mükemmel olmayan ama makul bir orta nokta; asıl önemli olan (çözünürlükten
+BAĞIMSIZLIK) sağlandı.
