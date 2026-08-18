@@ -10,6 +10,18 @@ alt-skorlarını hesaplayıp birleşik bir Document Quality Score (0-100)
 ölçeğe taşıyan, geçici/sezgisel bir özet skordur. Detaylar için
 src/scoring/fusion.py ve project_notes.md.
 
+GİZLİLİK (gerçek kimlik/pasaport gibi hassas belgelerle test edilebileceği
+için önemli): Yüklenen görüntü DİSKE, VERİTABANINA YA DA GİT'E HİÇBİR ŞEKİLDE
+YAZILMAZ — yalnızca tek bir isteğin (request) ömrü boyunca bellekte tutulur,
+skorlar hesaplanır, yanıt (önizleme dahil) tarayıcıya gönderilir ve işlem
+bitince Python çöp toplayıcısı belleği serbest bırakır. Sunucu yalnızca
+127.0.0.1'i (kendi bilgisayarın) dinler — ağ üzerinden hiçbir yere gitmez.
+Tek istisna: çok büyük dosyalarda Werkzeug (Flask'ın alt katmanı), isteği
+ayrıştırırken belleği aşan kısmı OS'un geçici klasörüne (macOS'ta kullanıcıya
+özel, diğer kullanıcılarca okunamayan bir dizin) kısa süreliğine yazıp istek
+bitince otomatik siler — bu, Flask'ın standart davranışıdır, bizim kodumuzun
+parçası değildir.
+
 Çalıştırma:
     source .venv/bin/activate
     python3 app.py
@@ -29,6 +41,16 @@ from src.scoring.fusion import compare_module_methods, compute_document_quality_
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB üst sınır
+
+
+@app.after_request
+def _no_store(response):
+    """Yanıtta (önizleme görüntüsü dahil) tarayıcının/ara sunucuların hiçbir
+    şey diske/önbelleğe yazmamasını garanti eder — hassas belge içeriği
+    barındırdığı için."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 MODULE_LABELS = {
     "blur": ("Bulanıklık", "Yüksek skor = keskin/net görüntü"),
@@ -113,4 +135,11 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # debug=False: gerçek kimlik/pasaport gibi hassas belgeler test edilirken
+    # Werkzeug'un interaktif hata ayıklayıcısını (hata anında bellek
+    # durumunu tarayıcıda gösterir, ayrıca uzaktan kod çalıştırma riski
+    # taşır) kasıtlı olarak KAPALI tutuyoruz. Geliştirme sırasında otomatik
+    # yeniden yükleme istersen: `FLASK_DEBUG=1 python3 app.py`.
+    import os
+    debug_mode = os.environ.get("FLASK_DEBUG") == "1"
+    app.run(debug=debug_mode, port=5000)
