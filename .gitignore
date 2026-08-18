@@ -17,3 +17,10 @@ data/processed/*
 # klasördeki 6 küçük (~370 KB), elle seçilmiş örnek görsel, web arayüzünü
 # (app.py) kurulumdan hemen sonra deneyebilmek için kasıtlı olarak repo'da
 # tutuluyor — bkz. README.md, "Web arayüzü".
+
+# GERÇEK VERİ (kimlik/pasaport gibi hassas belgeler) — HİÇBİR ZAMAN commit
+# edilmemeli. anon_mapping.csv (anon_id -> gerçek dosya adı) özellikle
+# KİMSEYLE paylaşılmamalı, yalnızca yerelde kalmalı — bkz.
+# experiments/real_data/README.md.
+results/real_data/*
+!results/real_data/.gitkeep
