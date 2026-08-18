@@ -99,7 +99,12 @@ def glare_score(ratio: float) -> float:
     return max(0.0, score)
 
 
-def has_colored_background(image: np.ndarray, saturated_pixel_threshold: int = 15, min_fraction: float = 0.15) -> bool:
+def has_colored_background(
+    image: np.ndarray,
+    saturated_pixel_threshold: int = 15,
+    min_fraction: float = 0.05,
+    value_ceiling: int = 245,
+) -> bool:
     """
     Belgenin zemininin (kimlik kartı/pasaport gibi) RENKLİ mi, yoksa düz
     beyaz/gri kağıt mı olduğunu tahmin eder.
@@ -117,16 +122,43 @@ def has_colored_background(image: np.ndarray, saturated_pixel_threshold: int = 1
     eder — `src/scoring/fusion.py` bu bilgiyle glare skoruna ne kadar
     güveneceğine karar verir.
 
+    v2 DÜZELTMESİ (kırpılmış piksel filtresi): Kullanıcı bildirdi — aşırı
+    parlak (aşırı pozlanmış) gerçek fotoğraflarda, gerçekten renkli bir
+    kimlik kartı bile "beyaz kağıt" sanılıp glare hiç hesaplanmıyor,
+    darkness da daha az sağlam bir yönteme düşüyordu. Kök neden: genel bir
+    parlaklık artışı (aşırı pozlama), rengi MATEMATİKSEL olarak yıkıyor
+    (HSV'de S = (max-min)/max; kanallar 255'e yaklaşıp kırpıldıkça oran
+    bozuluyor) — eski yöntem TÜM piksellere bakıyordu, bu yüzden aşırı
+    pozlanmış (255'e kırpılmış) büyük alanlar saturasyonu yapay olarak
+    düşürüyordu. Düzeltme: yalnızca KIRPILMAMIŞ piksellere (V < 245) bakılır
+    — bu piksellerdeki renk hâlâ güvenilir bir sinyal taşıyor. Doğrulama:
+    aynı kimlik kartı +150 parlaklık artışına kadar test edildi, hepsinde
+    doğru "renkli" tespit edildi; gerçek beyaz kağıt belgelerde yanlışlıkla
+    "renkli" denmedi (bkz. project_notes.md, "has_colored_background —
+    aşırı pozlama hatası").
+
     Args:
         image: BGR veya gri numpy array.
         saturated_pixel_threshold: HSV S kanalında bu değerin ÜZERİ
             "renkli" piksel sayılır.
-        min_fraction: Görüntünün en az bu kadarı renkli pikselse, zemin
-            "renkli" kabul edilir. Sentetik testte beyaz kağıt %0, kimlik
-            kartı %100 çıktı — bu yüzden düşük bir eşik (varsayılan %15)
-            yeterince ayırt edici.
+        min_fraction: KIRPILMAMIŞ piksellerin en az bu kadarı renkliyse,
+            zemin "renkli" kabul edilir.
+        value_ceiling: HSV V kanalında bu değerin ÜZERİ "kırpılmış/aşırı
+            pozlanmış" sayılıp analiz dışı bırakılır.
     """
     bgr = _to_bgr(image)
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    fraction_saturated = float((hsv[:, :, 1] > saturated_pixel_threshold).mean())
+    not_clipped = hsv[:, :, 2] < value_ceiling
+    total_pixels = hsv.shape[0] * hsv.shape[1]
+
+    if not_clipped.sum() < 0.02 * total_pixels:
+        # Görüntünün neredeyse tamamı kırpılmışsa (belge tümüyle beyaza
+        # yakınsa — ya gerçekten beyaz kağıt ya da tam glare/aşırı pozlama),
+        # ayırt edici bir piksel havuzu kalmıyor; eski (tüm görüntü) yönteme
+        # düşülür.
+        fraction_saturated = float((hsv[:, :, 1] > saturated_pixel_threshold).mean())
+        return fraction_saturated >= min_fraction
+
+    saturated_and_visible = (hsv[:, :, 1] > saturated_pixel_threshold) & not_clipped
+    fraction_saturated = float(saturated_and_visible.sum()) / float(not_clipped.sum())
     return fraction_saturated >= min_fraction

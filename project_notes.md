@@ -1147,3 +1147,33 @@ bir kapanma değil, kameranın doğal optik özelliği.
 vinyetli kart örnekleri (tamamı label=0) eklendi — model artık "yumuşak/kademeli köşe
 kararması" ile "gerçek yabancı nesne"yi ayırt etmeyi öğreniyor. Eğitim bu not yazılırken
 arka planda çalışıyor; sonuç ve doğrulama bir sonraki notta.
+
+### has_colored_background — aşırı pozlama hatası (glare "uygulanamaz" + darkness yanlış dallanıyordu)
+
+Kullanıcı iki bulguyu birlikte bildirdi: "bazı parlamaları düz beyaz kağıt sanıyor,
+hesaplamıyor" ve "fazla parlak fotoğrafta aydınlatma 0 çıkıyor." İkisi de AYNI KÖK
+NEDENDEN geliyordu: `has_colored_background()`.
+
+**Kök neden:** Fonksiyon, TÜM görüntüdeki saturasyonlu piksel oranına bakıyordu. Genel bir
+aşırı pozlama (fotoğrafın tamamı çok parlak — flaş, kötü ışık vb.), HSV'de S=(max-min)/max
+formülü gereği rengi MATEMATİKSEL olarak yıkıyor (kanallar 255'e yaklaşıp kırpıldıkça oran
+bozuluyor). Doğrulama: aynı kimlik kartına yalnızca +90 parlaklık eklenince, renkli piksel
+oranı %100'den %9'a düşüp eski eşiğin (%15) altına iniyordu — sistem gerçekten renkli bir
+kartı "düz beyaz kağıt" sanıyordu. Bu, iki modülü aynı anda bozuyordu:
+1. **Glare:** "uygulanamaz" (score=None) — hiç hesaplanmıyordu.
+2. **Darkness:** daha az sağlam olan beyaz-kağıt yöntemine (darkest_block_mean, MIN) düşüp,
+   gerçek fotoğraflardaki ek karmaşıklıkla (kamera gürültüsü, eşit olmayan ışık) birleşince
+   0'a çökebiliyordu.
+
+**Düzeltme:** `src/glare/metrics.py`, `has_colored_background()`'a bir "kırpılmış piksel
+filtresi" eklendi — artık yalnızca KIRPILMAMIŞ piksellere (V < 245) bakılıyor, çünkü bu
+piksellerdeki renk hâlâ güvenilir. Eşik de %15'ten %5'e düşürüldü (artık daha güvenilir bir
+piksel havuzuna bakıldığı için gerek kalmadı ama ek güvenlik payı). Görüntünün neredeyse
+tamamı kırpılmışsa (gerçekten tam glare/aşırı pozlama), eski (tüm görüntü) yönteme düşülüyor.
+
+**Doğrulama:** Aynı kimlik kartı +150 parlaklık artışına kadar test edildi — hepsinde doğru
+"renkli" tespit edildi (öncesi: +90'da yanlışlıkla "beyaz kağıt" diyordu). Gerçek beyaz
+kağıt belgelerde (`ornek_gorseller/1_temiz.png` vb.) yanlışlıkla "renkli" denmedi. Tam
+pipeline testinde glare artık her pozlama seviyesinde `uygulanabilir=True`, darkness her
+zaman doğru (P10, renkli zemin) yöntemi kullanıyor. Tam regresyon (beyaz kağıt + kimlik
+kartı) hatasız.
