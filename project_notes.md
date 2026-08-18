@@ -1013,3 +1013,21 @@ DIŞINDA tutulur. Diğer hiçbir modüle (blur/darkness/skew/occlusion) dokunulm
 için kalibre edildi (bkz. "Kalibrasyon düzeltmesi" bölümü) — kimlik kartı gibi farklı bir
 belge türünde (solid renk blokları, farklı doku) bu eşikler henüz ayrıca doğrulanmadı;
 yalnızca glare'in kendisi bu deneyde test edildi.
+
+### Kapsam kararı: Glare artık YALNIZCA renkli zeminli belgeler için
+
+Kullanıcı: "bu deneme özellikle kimlikler üzerindeki glare oranını hesaplayacak, bu
+sebeple beyaz kağıt fikrini bırakalım." Bu, projenin glare hedefini netleştirdi — beyaz
+kağıt "henüz çözülemedi" değil, artık **kapsam dışı** (bilinçli bir tasarım kararı).
+
+**Değişiklik:** `src/scoring/fusion.py`'deki `score_glare`, artık beyaz kağıtta
+`glare_ml_ratio` (v1, güvenilmez tahmin) hesaplamıyor — `has_colored_background()` False
+dönerse doğrudan `{"score": None, "applicable": False}` döndürüyor. Web arayüzü bu durumda
+net bir "Bu belge renkli zeminli değil — glare tespiti bu belge türü için tasarlanmadı,
+uygulanamaz" mesajı gösteriyor (eskiden güvenilmez bir sayı gösterip "dahil edilmedi"
+diyordu — artık hiç sayı üretmiyor). `compare_module_methods`'taki glare bölümü de
+sadeleştirildi, artık yalnızca `glare_ratio`'yu (renkli zeminde kullanılan yöntem) gösteriyor.
+
+Bu, `glare_ml_ratio`/`ml_detection.py`'nin (v1-v5 denemeleri) kod olarak SİLİNMESİ değil —
+hâlâ `src/glare/ml_detection.py`'de duruyor, tarihsel/gelecekte referans için — sadece
+ana skorlama akışından çıkarıldı.

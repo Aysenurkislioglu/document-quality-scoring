@@ -150,6 +150,7 @@
   .module-score-num.good { color: var(--good); }
   .module-score-num.warn { color: var(--warn); }
   .module-score-num.bad { color: var(--bad); }
+  .module-score-num.muted { color: var(--muted); }
 
   .bar-track { height: 5px; border-radius: 999px; background: var(--border); overflow: hidden; margin-bottom: 8px; }
   .bar-fill { height: 100%; border-radius: 999px; transition: width 1s cubic-bezier(.4,0,.2,1); }
@@ -250,7 +251,7 @@
             {% set comp = result.components[key] %}
             {% set label, hint = module_labels[key] %}
             {% set mc = result.method_comparison[key] %}
-            {% set sclass = "good" if comp.score >= 70 else ("warn" if comp.score >= 40 else "bad") %}
+            {% set sclass = "muted" if comp.score is none else ("good" if comp.score >= 70 else ("warn" if comp.score >= 40 else "bad")) %}
             <div class="module-row">
               <div class="module-top">
                 <span class="module-icon">
@@ -270,14 +271,20 @@
                   <div class="module-name">{{ label }}</div>
                   <div class="module-hint">{{ hint }}</div>
                 </div>
-                <div class="module-score-num {{ sclass }}">{{ "%.0f"|format(comp.score) }}</div>
+                {% if comp.score is none %}
+                  <div class="module-score-num muted">—</div>
+                {% else %}
+                  <div class="module-score-num {{ sclass }}">{{ "%.0f"|format(comp.score) }}</div>
+                {% endif %}
               </div>
-              <div class="bar-track"><div class="bar-fill {{ sclass }}" style="width: {{ comp.score }}%"></div></div>
-              <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
-              {% if key == "glare" and not comp.reliable %}
-                <div class="module-flag">Düz beyaz kağıtta güvenilmez — genel ortalamaya dahil edilmedi.</div>
-              {% elif key == "glare" and comp.reliable %}
-                <div class="module-flag">Renkli zemin tespit edildi — güvenilir kabul edilip ortalamaya dahil edildi.</div>
+              {% if comp.score is none %}
+                <div class="module-flag">Bu belge renkli zeminli değil (düz beyaz kağıt) — glare tespiti bu belge türü için tasarlanmadı, uygulanamaz.</div>
+              {% else %}
+                <div class="bar-track"><div class="bar-fill {{ sclass }}" style="width: {{ comp.score }}%"></div></div>
+                <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
+                {% if key == "glare" %}
+                  <div class="module-flag">Renkli zemin (kimlik kartı/pasaport benzeri) tespit edildi — ortalamaya dahil edildi.</div>
+                {% endif %}
               {% endif %}
 
               <details>

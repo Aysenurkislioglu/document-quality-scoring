@@ -20,15 +20,18 @@ Kapsamı GENİŞLETİLENLER:
   klasik specular-highlight yöntemleri "dichromatic reflection model"e
   dayanır — parlamanın rengi (beyaza yakın) yüzeyin KENDİ rengiyle
   ayrışır; ama beyaz kağıtta yüzeyin "gerçek rengi" zaten beyaz, ayrışacak
-  bir fark yok. Bu yüzden RENKLİ ZEMİNLİ belgelerde (kimlik kartı, pasaport)
-  aynı basit, DEĞİŞTİRİLMEMİŞ HSV+CC yöntemi test edildi ve MÜKEMMEL
-  sonuç verdi: 3 renk şemasında, 72 görüntüde rho=1.00, hatalı-pozitif=0
-  (hem glare-yok hem bulanıklık+glare-yok durumunda) — bkz.
-  results/glare/id_card_scores.csv. `has_colored_background()` (bkz.
-  src/glare/metrics.py) her görüntü için hangi rejimde olduğumuzu tahmin
-  eder; glare skoru yalnızca RENKLİ zeminde nihai ortalamaya güvenilir
-  şekilde dahil edilir, düz beyaz kağıtta hâlâ bilgi amaçlı/güvenilmez
-  kalır.
+  bir fark yok.
+
+  KAPSAM KARARI: Bu projenin hedef kullanım alanı KİMLİK KARTI/PASAPORT
+  benzeri RENKLİ zeminli belgeler olduğu için (kullanıcı kararı), DÜZ
+  BEYAZ KAĞIT DESTEĞİ KAPSAM DIŞI BIRAKILDI — orada güvenilmez bir tahmin
+  göstermek yerine glare "uygulanamaz" (score=None) olarak işaretlenir.
+  RENKLİ zeminde ise aynı basit, DEĞİŞTİRİLMEMİŞ HSV+CC yöntemi (glare_ratio)
+  test edildi ve MÜKEMMEL sonuç verdi: 3 renk şemasında, 72 görüntüde
+  rho=1.00, hatalı-pozitif=0 (hem glare-yok hem bulanıklık+glare-yok
+  durumunda) — bkz. results/glare/id_card_scores.csv. `has_colored_
+  background()` (bkz. src/glare/metrics.py) her görüntü için hangi
+  rejimde olduğumuzu tahmin eder.
 - Occlusion: OCR tabanlı yöntem (metrics.py) hâlâ yalnızca ÖNCEDEN BİLİNEN,
   yapılandırılmış alanlarda (örn. "Belge No") çalışır ve bu genel akışa dahil
   değildir. Ancak KONUMDAN VE RENKTEN BAĞIMSIZ bir ek sinyal eklendi: blok-
@@ -58,7 +61,6 @@ import numpy as np
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
 from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean
 from src.glare.metrics import glare_ratio, has_colored_background
-from src.glare.ml_detection import glare_ml_ratio
 from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
@@ -160,38 +162,35 @@ def score_skew(image: np.ndarray) -> Dict[str, object]:
     }
 
 
-GLARE_BAD, GLARE_GOOD = 0.20, 0.0  # glare_ml_ratio (yalnızca beyaz kağıtta,
-# bilgi amaçlı) — gerçek gözlemlenen aralığa göre; 1.0 kullanmak blur/
-# darkness'ta düzeltilen satürasyon hatasının aynısını yapardı.
-
-
 def score_glare(image: np.ndarray) -> Dict[str, object]:
-    """Glare alt-skoru — zemin RENKLİ mi DEĞİL mi'ye göre farklı yöntem kullanır.
+    """Glare alt-skoru — YALNIZCA RENKLİ ZEMİNLİ belgeler (kimlik kartı/
+    pasaport benzeri) için tasarlanmıştır.
 
-    GEREKÇE: bkz. modül docstring'i, "Kapsamı GENİŞLETİLENLER" ve
-    src/glare/metrics.py, `has_colored_background` docstring'i. Özetle:
-    - RENKLİ zemin (kimlik kartı/pasaport benzeri): klasik HSV+CC
-      (glare_ratio) kullanılır — 72 görüntüde rho=1.00, hatalı-pozitif=0
-      ile doğrulandı (bkz. results/glare/id_card_scores.csv). `reliable=True`.
-    - DÜZ BEYAZ KAĞIT: hiçbir yöntem (6 deneme) güvenilir bulunamadı.
-      Bağlam-farkında ML tahmini (ml_detection.py) yine de bilgi amaçlı
-      hesaplanır ama `reliable=False` — nihai ortalamaya dahil edilmez.
+    GEREKÇE / KAPSAM KARARI: Beyaz kağıtta altı ayrı deneme (HSV+CC, şekil
+    filtresi, dört ML varyantı) hiçbiri güvenilir olmadı (bkz.
+    project_notes.md, "Glare ML v1-v5"). Bu projenin hedef kullanım alanı
+    KİMLİK/PASAPORT tipi belgeler olduğu için (kullanıcı kararı), beyaz
+    kağıt desteği kapsam dışı bırakıldı — orada güvenilmez bir ML tahmini
+    göstermek yerine net biçimde "uygulanamaz" denir. RENKLİ zeminde
+    (`has_colored_background`) klasik HSV+CC (glare_ratio) kullanılır —
+    72 görüntüde rho=1.00, hatalı-pozitif=0 ile doğrulandı (bkz.
+    results/glare/id_card_scores.csv).
     """
-    colored = has_colored_background(image)
-    if colored:
-        ratio = glare_ratio(image)
+    if not has_colored_background(image):
         return {
-            "raw_value": ratio,
-            "raw_label": "glare_ratio (renkli zemin)",
-            "score": _linear_score(ratio, GLARE_CARD_BAD, GLARE_CARD_GOOD),
-            "reliable": True,
+            "raw_value": None,
+            "raw_label": "N/A",
+            "score": None,
+            "reliable": False,
+            "applicable": False,
         }
-    ratio = glare_ml_ratio(image)
+    ratio = glare_ratio(image)
     return {
         "raw_value": ratio,
-        "raw_label": "glare_ml_ratio (beyaz kağıt, GÜVENİLMEZ)",
-        "score": _linear_score(ratio, GLARE_BAD, GLARE_GOOD),
-        "reliable": False,
+        "raw_label": "glare_ratio (renkli zemin)",
+        "score": _linear_score(ratio, GLARE_CARD_BAD, GLARE_CARD_GOOD),
+        "reliable": True,
+        "applicable": True,
     }
 
 
@@ -218,9 +217,10 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
 
     blur/darkness/skew/occlusion her zaman ortalamaya dahildir. Glare ise
     KOŞULLUDUR: yalnızca zemin RENKLİ ise (kimlik kartı/pasaport benzeri —
-    bkz. `has_colored_background`) ortalamaya katılır; düz beyaz kağıtta
-    güvenilmez bulunduğu için (bkz. modül docstring'i) dışarıda bırakılır,
-    yalnızca bilgi amaçlı raporlanır.
+    bkz. `has_colored_background`) ortalamaya katılır. Düz beyaz kağıt bu
+    projenin kapsamı dışıdır (bkz. modül docstring'i) — bu durumda glare
+    "uygulanamaz" (score=None) olarak işaretlenir, tahmini bir sayı
+    üretilmez.
 
     Args:
         image: BGR (OpenCV formatında) numpy array — tek bir belge fotoğrafı.
@@ -255,11 +255,10 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
             "yüklemede uygulanmadı."
         ),
         "glare_note": (
-            "Glare skoru yalnızca RENKLİ zeminli belgelerde (kimlik kartı/"
-            "pasaport benzeri) nihai ortalamaya dahil edilir — bu tür "
-            "zeminlerde 72 test görüntüsünde rho=1.00, hatalı-pozitif=0 ile "
-            "doğrulandı. Düz beyaz kağıtta (altı ayrı deneme sonrası) "
-            "güvenilir bulunamadı; o durumda yalnızca bilgi amaçlı gösterilir."
+            "Glare tespiti bu projede KİMLİK KARTI/PASAPORT benzeri RENKLİ "
+            "zeminli belgeler için kapsandı (72 test görüntüsünde rho=1.00, "
+            "hatalı-pozitif=0). Düz beyaz kağıt kapsam dışıdır — bu durumda "
+            "glare 'uygulanamaz' olarak işaretlenir, tahmini skor üretilmez."
         ),
         "calibration_note": (
             "Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin "
@@ -331,22 +330,18 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
         },
         "glare": {
             "methods": {
-                "HSV + Connected Components (glare_ratio) — RENKLİ zeminde güvenilir": glare_ratio(image),
-                "ML — satır-bağlamlı Random Forest (glare_ml_ratio) — beyaz kağıtta bile güvenilmez": glare_ml_ratio(image),
+                "HSV + Connected Components (glare_ratio)": glare_ratio(image),
             },
-            "used_in_overall": (
-                "Zemin renkliyse: HSV+CC (glare_ratio). Beyaz kağıtsa: hiçbiri "
-                "(yalnızca bilgi amaçlı gösterilir)."
-            ),
+            "used_in_overall": "HSV + Connected Components (glare_ratio) — yalnızca renkli zeminde",
             "note": (
-                "Şaşırtıcı sonuç: basit HSV+CC yöntemi RENKLİ zeminde (kimlik "
-                "kartı benzeri) mükemmel çalışıyor (rho=1.00, hatalı-pozitif=0, "
-                "bkz. results/glare/id_card_scores.csv) — çünkü glare'in rengi "
-                "(beyaza yakın) zeminin KENDİ renginden gerçekten ayrışıyor "
-                "(dichromatic reflection model). Aynı yöntem düz beyaz kağıtta "
-                "işe yaramıyor çünkü orada zeminin 'gerçek rengi' de beyaz — "
-                "ayrışacak bir fark yok. Altı ayrı ML denemesi de beyaz kağıtta "
-                "bu fiziksel sınırı aşamadı (bkz. project_notes.md)."
+                "Bu proje glare tespitini KİMLİK KARTI/PASAPORT benzeri RENKLİ "
+                "zeminli belgeler için kapsıyor (kullanıcı kararı) — düz beyaz "
+                "kağıt kapsam dışı bırakıldı (bkz. project_notes.md, altı ayrı "
+                "başarısız deneme). Renkli zeminde bu basit yöntem mükemmel "
+                "çalışıyor (rho=1.00, hatalı-pozitif=0, bkz. "
+                "results/glare/id_card_scores.csv) — glare'in rengi (beyaza "
+                "yakın) zeminin KENDİ renginden ayrışabiliyor (dichromatic "
+                "reflection model)."
             ),
         },
         "occlusion": {

@@ -149,9 +149,9 @@ bunların aynı görüntü üzerindeki karşılaştırması da gösterilir.
 
 > **Not:** Bu skor, etiketli gerçek veriyle kalibre edilmiş bir ML modelinin çıktısı
 > değildir; mevcut modüllerin ham metriklerinden türetilen geçici/sezgisel bir özettir.
-> Glare skoru KOŞULLUDUR: zemin renkli ise (kimlik kartı/pasaport benzeri) güvenilir kabul
-> edilip nihai skora dahil edilir; düz beyaz kağıtta (altı ayrı denemeye rağmen) güvenilir
-> bulunamadığı için yalnızca bilgi amaçlı gösterilir. Occlusion'ın OCR tabanlı, alan-bazlı
+> Glare tespiti bu proje kapsamında KİMLİK KARTI/PASAPORT benzeri RENKLİ zeminli belgeler
+> için tasarlandı; düz beyaz kağıt kapsam dışıdır (altı ayrı deneme sonrası bilinçli bir
+> kapsam kararı) — bu durumda glare "uygulanamaz" olarak işaretlenir. Occlusion'ın OCR tabanlı, alan-bazlı
 > bileşeni önceden bilinen şablon gerektirdiğinden bu genel akışa dahil değildir — ama
 > konum/renk/dokudan bağımsız ML tespiti dahildir. Detay için
 > [Bilinen Sınırlamalar](#bilinen-sınırlamalar).
@@ -294,12 +294,13 @@ Deneylerin tam metodolojisi, alınan kararlar ve karşılaşılan problemler iç
 - **Skorlar mutlak bir "doğruluk oranı" değildir.** Feature Fusion aşamasındaki
   normalizasyon eşikleri, literatür ve sentetik deney gözlemlerinden esinlenen
   geçici/sezgisel değerlerdir; gerçek etiketli veriyle öğrenilmemiştir.
-- **Glare modülü yalnızca DÜZ BEYAZ KAĞITTA güvenilmez** — hiç parlama olmayan
-  görüntülerde bile ~%85 oranında yanlış alarm üretir; altı ayrı düzeltme denemesi (şekil
-  filtresi + dört ML varyantı) de bunu gideremedi (bkz. `project_notes.md`). **Kimlik
-  kartı/pasaport gibi RENKLİ zeminli belgelerde ise aynı basit yöntem hatasız çalışır**
-  (rho=1.00, hatalı-pozitif=0) — sistem zemin rengini otomatik tespit edip
-  (`has_colored_background`) buna göre glare'i dahil eder ya da dışlar.
+- **Glare tespiti yalnızca RENKLİ zeminli belgeler (kimlik kartı/pasaport benzeri) için
+  kapsandı** — bu, projenin hedef kullanım alanına göre bilinçli bir kapsam kararıdır.
+  Düz beyaz kağıtta altı ayrı deneme (şekil filtresi + dört ML varyantı) denenmiş, hiçbiri
+  güvenilir bulunamamıştır (bkz. `project_notes.md`) — bu yüzden düz beyaz kağıt yüklenirse
+  glare "uygulanamaz" olarak işaretlenir, tahmini bir sayı üretilmez. Renkli zeminde ise
+  basit HSV+CC yöntemi hatasız çalışır (rho=1.00, hatalı-pozitif=0) — sistem zemin rengini
+  otomatik tespit eder (`has_colored_background`).
 - **Occlusion modülünün OCR/alan-bazlı bileşeni yalnızca yapılandırılmış alanlarda
   çalışır** — konumu ve beklenen formatı önceden bilinen alanlar (örn. "Belge No")
   gerektirir. ML tabanlı bileşen (Random Forest) konum VE renkten bağımsızdır — 5
