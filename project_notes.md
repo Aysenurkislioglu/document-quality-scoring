@@ -644,3 +644,74 @@ ele alınması gereken, bu modüllerden çıkan açık noktalar:
 - Skew modülünün Projection Profile bileşeninin az-metinli belgelerdeki başarısızlığı.
 - Blur modülünün font boyutu duyarlılığı.
 - Tüm bu modüllerin GERÇEK (sentetik olmayan) veri üzerinde yeniden doğrulanması.
+
+---
+
+## Aşama 5: Feature Fusion — Yöntem ve Mimari Kararı
+
+`src/scoring/fusion.py` ile Aşama 5'in İLK sürümü yazıldı (basit doğrusal normalizasyon +
+ortalama, `app.py` üzerinden web arayüzünden erişilebiliyor). Bu bölüm, her modül için
+hangi yöntemde kalınacağına ve birleştirme (fusion) mimarisinin nasıl olgunlaştırılacağına
+dair alınan kararları kaydeder.
+
+### Modül bazlı yöntem kararları
+
+| Modül | Karar | Gerekçe |
+|---|---|---|
+| Blur | Tenengrad birincil, Laplacian Variance çapraz kontrol — **değişiklik yok** | Tenengrad rho=−1.00, Laplacian rho≈−0.997; ikisi birlikte tutulursa aralarındaki fark (biri düşük biri değilse) gürültü/artefakt sinyali de verir. |
+| Darkness | En karanlık blok ortalaması birincil, global ortalama yardımcı — **değişiklik yok** | Global/percentile lokal karanlığı kaçırıyor (deneyde P25/P50 tepkisiz kaldı); blok-bazlı analiz yakalıyor (rho≈−0.83). |
+| Skew | Hough birincil, bulamazsa Projection Profile'a düşme — **değişiklik yok** | Hough MAE≈0.91° vs Projection MAE≈1.82°; literatürde de bu alana özel yeni bir DL yöntemi yok, klasik yöntemler hâlâ pratikte baskın. |
+| **Glare** | **Değişmeli.** Mevcut HSV+CC yerine, literatürün önerdiği CNN tabanlı glare heatmap (Rodin & Orlov, 2019 — arXiv:1911.05189): belge bloklara ayrılır, her blok için luminance + binarize stroke histogramı çıkarılır, küçük bir CNN'e verilir. | HSV+CC, beyaz kağıt ile glare'i ayırt edemiyor (severity=0'da ~%85 hatalı-pozitif — bkz. `results/glare/false_positive_baseline.csv`). Bu, eşik ayarıyla düzelecek bir sorun değil, yöntemin kendisinin sınırlaması. |
+| **Occlusion** | Yapılandırılmış alanlarda (OCR + beklenen uzunluk) **değişiklik yok** (rho≈−0.97, çok güçlü). Serbest/rastgele kapanma için **yeni bir bileşen eklenmeli**: el/parmak/nesne tespiti (object detection / segmentation, örn. YOLO ailesi). | Mevcut yöntem yalnızca konumu ÖNCEDEN BİLİNEN alanlarda çalışır; serbest metinde "beklenen uzunluk" tanımsız olduğu için hiç sinyal üretmiyor. |
+
+**Özet:** Blur, Darkness, Skew modüllerinde mevcut klasik yöntemler hem kendi deney
+sonuçlarımızla hem literatürle uyumlu — bu üçünde yöntem değişikliği planlanmıyor. Glare ve
+Occlusion (serbest metin), literatürün de "belgeye özel en az araştırılmış" dediği iki alan;
+ikisi de dar kapsamlı birer görüntü/nesne tanıma bileşeni (CNN / object detection)
+gerektiriyor — uçtan uca kara kutu bir model değil, yalnızca o iki alt-problem için.
+
+### Fusion mimarisi: doğrusal ortalamadan ML regresyona geçiş kararı
+
+**Mevcut durum (v1, `fusion.py`):** Her alt-skor elle belirlenmiş bir aralıkla (`bad`/`good`
+sabitleri) 0-100'e normalize edilip basit ortalaması alınıyor. Bu, docstring'de de açıkça
+belirtildiği gibi GEÇİCİ bir yer tutucudur.
+
+**Hedeflenen v2 mimarisi** (`research/literature_review.md`, Bölüm 5'teki "Hibrit" seçimiyle
+uyumlu):
+
+```
+Katman 1 — Feature Extraction (mevcut src/* modülleri, glare/occlusion güncellemesiyle)
+Katman 2 — Feature Vector (ham metriklerin birleştirilmesi + bağlamsal özellikler,
+           örn. font boyutu / metin yoğunluğu — blur'un font duyarlılığını çözmek için)
+Katman 3 — ML Regresyon (RF / XGBoost / SVR), gerçek etiketli veriyle eğitilir → 0-100 skor
+Katman 4 — Açıklama (feature importance / SHAP; MLLM yalnızca doğal dile çevirme için,
+           skorlamanın kendisi için DEĞİL — bkz. aşağıdaki Q-Doc bulgusu)
+```
+
+**Bunun basit doğrusal ortalamaya göre üç somut avantajı:**
+1. **Kalibrasyon:** Şu anki eşikler gerçek veriyle öğrenilmedi (bkz. `fusion.py`
+   docstring'i). Kiruthika, Athanesious & Kiruthika (2026) aynı yaklaşımı (12 özellik +
+   XGBoost, OCR doğruluğu ground-truth) deneyip PCC=0.9139 almış — yöntemin işe yaradığına
+   dair somut kanıt.
+2. **Modüller arası etkileşim:** `literature_review.md`'nin kendi açık nokta listesinde var
+   — "skew + blur birlikte" gibi durumlar hiçbir kaynakta ele alınmamış, doğrusal ortalama
+   bunu yakalayamaz; ağaç-tabanlı bir model (RF/XGBoost) etkileşimi doğal öğrenir.
+3. **Açıklanabilirlik korunur:** Regresyonun girdisi hâlâ bizim yorumlanabilir ham
+   metriklerimiz; feature importance ile "skor düşük çünkü darkest_block_mean çok düşüktü"
+   gibi somut açıklamalar üretilebilir — projenin en baştaki "kara kutu CNN'e alternatif"
+   motivasyonu korunuyor.
+
+**MLLM tabanlı skorlama neden seçilmedi:** `literature_review.md`, Bölüm 3'te incelenen
+Q-Doc (arXiv:2511.11410, 2025) bulgusu: MLLM'ler DIQA'da temel yetenek gösteriyor ama
+tutarsız skorlama ve bozulma tipini yanlış tanımlama sorunları var. Bu yüzden MLLM birincil
+skorlayıcı olarak değil, ileride yalnızca açıklama/rapor metni üretmek için tamamlayıcı bir
+bileşen olarak değerlendirilebilir.
+
+**Pratik ilk adım (etiketli veri sorunu için):** Gerçek insan etiketlemesi maliyetli;
+SmartDoc-QA ve Kiruthika et al.'ın kullandığı gibi **OCR doğruluğunu proxy ground-truth**
+olarak kullanmak (Tesseract altyapısı Occlusion modülünde zaten hazır) hızlı bir başlangıç
+noktası sağlar — manuel etiketlemeye gerek kalmadan modeli eğitmeye başlanabilir.
+
+**Karar durumu:** Bu, bir mimari YÖN kararıdır; ML regresyon katmanının implementasyonu ve
+gerçek veri toplama/etiketleme henüz YAPILMADI. Glare'in CNN tabanlı yeniden yazımı da henüz
+başlanmadı — bu notta yalnızca hangi yöne gidileceği kayıt altına alındı.
