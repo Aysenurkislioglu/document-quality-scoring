@@ -21,7 +21,10 @@ from scipy.stats import spearmanr
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LABELS_PATH = PROJECT_ROOT / "results" / "real_data" / "labels.csv"
 SCORES_PATH = PROJECT_ROOT / "results" / "real_data" / "scores.csv"
+SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "severity.csv"
 REPORT_PATH = PROJECT_ROOT / "results" / "real_data" / "accuracy_report.txt"
+
+SEVERITY_ORDINAL = {"az": 0, "orta": 1, "cok": 2}
 
 QUALITY_ORDINAL = {"kotu": 0, "orta": 1, "iyi": 2}
 # Her defekt etiketi -> ilgili sistem modülü (yüksek skor = iyi, bu yüzden
@@ -122,6 +125,40 @@ def main():
          f"{100*len(false_alarms)/len(clean_labeled) if clean_labeled else 0:.1f})")
     if false_alarms:
         emit(f"   anon_id'ler: {false_alarms}")
+
+    # --- 5) (opsiyonel) Kapanma ŞİDDETİ analizi ---
+    # Bu veri setinde kapanma bayrağı TÜM görüntülerde 1 (bkz. bölüm 2) —
+    # yani ayırt edici değil. severity.csv varsa (2b_label_severity.py ile
+    # üretilir), gerçek sürücünün kapanmanın DERECESİ olup olmadığını test
+    # ediyoruz: kapanma_siddet, genel kaliteyle VE her modül skoruyla.
+    if SEVERITY_PATH.exists():
+        severity = load_csv(SEVERITY_PATH)
+        sev_ids = sorted(set(severity) & set(labels) & set(scores))
+        if len(sev_ids) >= 5:
+            emit("")
+            emit(f"5) KAPANMA ŞİDDETİ ANALİZİ ({len(sev_ids)} görüntü etiketlendi)")
+            emit("   (Kapanma bayrağı bu veri setinde HER görüntüde 1 — ayırt edici değil.")
+            emit("   Bu bölüm, genel kalitenin asıl sürücüsünün kapanma DERECESİ olup")
+            emit("   olmadığını test ediyor.)\n")
+
+            sev_ord = [SEVERITY_ORDINAL[severity[i]["kapanma_siddet"]] for i in sev_ids]
+
+            human_q = [QUALITY_ORDINAL[labels[i]["genel_kalite"]] for i in sev_ids]
+            rho_q, _ = spearmanr(sev_ord, human_q)
+            emit(f"   Kapanma şiddeti vs. SENİN genel kalite kararın: rho={rho_q:.4f}")
+            emit("   (Güçlü NEGATİF rho = kapanma arttıkça senin 'kötü' demen bekleniyordu,")
+            emit("   yani genel kaliteyi asıl kapanma belirliyor demektir)\n")
+
+            for col in ["blur_score", "darkness_score", "skew_score", "occlusion_score"]:
+                vals = [float(scores[i][col]) for i in sev_ids if scores[i][col] != ""]
+                sevs = [sev_ord[j] for j, i in enumerate(sev_ids) if scores[i][col] != ""]
+                if len(set(sevs)) > 1:
+                    rho_m, _ = spearmanr(sevs, vals)
+                    emit(f"   Kapanma şiddeti vs. {col}: rho={rho_m:.4f}")
+        else:
+            emit("")
+            emit(f"5) Kapanma şiddeti dosyası var ama yalnızca {len(sev_ids)} ortak "
+                 f"görüntü var (>=5 gerekiyor) — 2b_label_severity.py ile daha fazla etiketle.")
 
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nRapor kaydedildi -> {REPORT_PATH}")

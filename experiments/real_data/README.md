@@ -37,6 +37,13 @@ python3 experiments/real_data/3_batch_score.py
 
 # 4) Karşılaştır — gerçek doğruluk raporu
 python3 experiments/real_data/4_analyze_accuracy.py
+
+# 2b) OPSİYONEL — kapanma ŞİDDETİNİ ek olarak etiketle (az/orta/çok).
+#     Kapanma bayrağı (evet/hayır) tüm görüntülerde aynıysa ayırt edici
+#     değildir; şiddet, genel kalitenin asıl sürücüsü olup olmadığını
+#     test etmeye yarar. http://127.0.0.1:5051 — sonra 4. adımı tekrar
+#     çalıştır, rapora otomatik ek bir bölüm eklenir.
+python3 experiments/real_data/2b_label_severity.py
 ```
 
 ## Gizlilik — nerede ne duruyor
