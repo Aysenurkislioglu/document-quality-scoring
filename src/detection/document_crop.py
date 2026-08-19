@@ -79,50 +79,103 @@ def _four_point_warp(image: np.ndarray, pts: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(image, matrix, (max_width, max_height))
 
 
-def detect_document_quad(image: np.ndarray, min_area_fraction: float = 0.15) -> Optional[np.ndarray]:
+def _quad_aspect_ratio(quad: np.ndarray) -> float:
+    """4 köşeli bir dörtgenin uzun/kısa kenar oranını hesaplar (>=1)."""
+    rect = _order_points(quad)
+    (tl, tr, br, bl) = rect
+    width = (np.linalg.norm(br - bl) + np.linalg.norm(tr - tl)) / 2
+    height = (np.linalg.norm(tr - br) + np.linalg.norm(tl - bl)) / 2
+    if width <= 0 or height <= 0:
+        return 0.0
+    long_side, short_side = max(width, height), min(width, height)
+    return long_side / short_side
+
+
+def _candidate_edge_maps(image: np.ndarray):
+    """Farklı kanal/eşik kombinasyonlarından kenar haritaları üretir —
+    tek bir gri-tonlama + sabit-eşik yaklaşımı gerçek fotoğrafların
+    çoğunda (farklı ışık/kontrast koşulları) başarısız oluyordu (bkz.
+    project_notes.md, ilk denemede %24.5 tespit oranı). Birden fazla
+    deneme yapıp EN İYİSİNİ (aspect-ratio testinden geçeni) seçmek,
+    tek bir gevşek yedek yönteme güvenmekten daha güvenli — her aday
+    hâlâ AYNI sıkı 4-köşe + oran testinden geçmek zorunda."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    channels = [gray]
+    if image.ndim == 3:
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        channels.append(hsv[:, :, 1])  # saturation — renkli kart/arkaplan sınırında güçlü
+        channels.append(hsv[:, :, 2])  # value — ışık/gölge sınırında güçlü
+
+    threshold_pairs = [(50, 150), (30, 100), (75, 200)]
+    kernel = np.ones((5, 5), np.uint8)
+    for ch in channels:
+        blurred = cv2.GaussianBlur(ch, (5, 5), 0)
+        for lo, hi in threshold_pairs:
+            edges = cv2.Canny(blurred, lo, hi)
+            edges = cv2.dilate(edges, kernel, iterations=1)
+            yield edges
+
+
+def detect_document_quad(
+    image: np.ndarray,
+    min_area_fraction: float = 0.15,
+    max_aspect_ratio: float = 4.0,
+    min_aspect_ratio: float = 1.02,
+) -> Optional[np.ndarray]:
     """
-    Görüntüde belgeyi temsil eden en büyük 4-köşeli konturu bulur.
+    Görüntüde belgeyi temsil eden en büyük, GEÇERLİ 4-köşeli konturu bulur.
 
-    Yöntem: gri tonlama -> Gaussian blur -> Canny kenar tespiti -> dilate
-    (kopuk kenarları birleştirmek için) -> dış konturlar -> alana göre
-    sırala -> ilk 5 aday arasında 4 köşeye (dörtgene) yaklaşan ve yeterince
-    büyük (min_area_fraction) olanı seç.
+    Yöntem: birden fazla kanal (gri tonlama, HSV doygunluk, HSV değer) ve
+    birden fazla Canny eşiği ile kenar haritaları üretilir (bkz.
+    `_candidate_edge_maps`) -> her kenar haritasında dış konturlar
+    bulunur -> alana göre sırala -> ilk 5 aday arasında 4 köşeye
+    (dörtgene) yaklaşan VE makul bir en-boy oranına sahip en BÜYÜK adayı
+    seç. Oran filtresi BİLİNÇLİ OLARAK ÇOK GEVŞEK tutuluyor (varsayılan
+    1.02-4.0) — perspektiften çekilen (açılı) fotoğraflarda kartın piksel-
+    uzayındaki görünen oranı gerçek fiziksel oranından (örn. kimlik kartı
+    ~1.58) önemli ölçüde sapabilir; sıkı bir aralık (denendi: ~1.15-2.3)
+    GEÇERLİ tespitleri de reddedip kapsamı düşürdü (bkz. project_notes.md).
+    Bu filtre yalnızca aşırı uçlardaki (neredeyse kare ya da çok ince
+    şerit) mantık dışı şekilleri elemek için, sıkı bir doğrulama değil.
 
-    BİLİNÇLİ TASARIM KARARI: Yalnızca NET bir 4-köşe eşleşmesi kabul
-    edilir — "en büyük konturun sınırlayıcı kutusu" gibi gevşek bir yedek
-    YOK. Denendi (bkz. project_notes.md) ama gerçek fotoğraflarda neredeyse
-    her büyük konturu "belge" sayıp %97 gibi yapay yüksek bir "tespit
-    oranı" üretti — görsel doğrulama (bu kodun göremediği gerçek
-    fotoğraflar) olmadan bu oranın gerçekten doğru kırpma mı yoksa yanlış
-    kırpma mı ürettiği bilinemez. YANLIŞ bir kırpma (belgenin bir kısmını
-    kesmek/yanlış bölgeyi almak), kırpmamaktan (mevcut, bilinen davranış)
-    DAHA KÖTÜDÜR — bu yüzden emin olamadığımızda tespit BAŞARISIZ sayılır.
+    BİLİNÇLİ TASARIM KARARI: Yalnızca net bir 4-köşe eşleşmesi VE makul
+    bir oran kabul edilir — "en büyük konturun sınırlayıcı kutusu" gibi
+    gevşek bir yedek YOK. Denendi (bkz. project_notes.md) ama gerçek
+    fotoğraflarda neredeyse her büyük konturu "belge" sayıp %97 gibi
+    yapay yüksek bir "tespit oranı" üretti — görsel doğrulama (bu kodun
+    göremediği gerçek fotoğraflar) olmadan bu kırpmaların doğru mu yanlış
+    mı olduğu bilinemezdi. YANLIŞ bir kırpma, kırpmamaktan DAHA KÖTÜDÜR —
+    bu yüzden emin olamadığımızda tespit BAŞARISIZ sayılır. Çoklu
+    kanal/eşik denemesi ve oran filtresi, kapsamı artırırken bu ilkeyi
+    korumak için eklendi (her aday hâlâ aynı sıkı testten geçiyor).
 
-    Bulamazsa None döner — bu NORMAL bir durum (örn. belge kadrajı zaten
-    dolduruyorsa kenar konturu dış çerçeveyle çakışabilir), çağıran taraf
-    bu durumda orijinal görüntüyü kullanmaya devam eder.
+    Bulamazsa None döner — bu NORMAL bir durumdur, çağıran taraf bu
+    durumda orijinal görüntüyü kullanmaya devam eder.
     """
     h, w = image.shape[:2]
     total_area = h * w
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 50, 150)
-    edges = cv2.dilate(edges, np.ones((5, 5), np.uint8), iterations=1)
+    best = None
+    best_area = 0.0
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-
-    candidates = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
-    for c in candidates:
-        area = cv2.contourArea(c)
-        if area < total_area * min_area_fraction:
+    for edges in _candidate_edge_maps(image):
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
             continue
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        if len(approx) == 4:
-            return approx.reshape(4, 2).astype("float32")
-    return None
+        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+            area = cv2.contourArea(c)
+            if area < total_area * min_area_fraction or area <= best_area:
+                continue
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            if len(approx) != 4:
+                continue
+            quad = approx.reshape(4, 2).astype("float32")
+            ratio = _quad_aspect_ratio(quad)
+            if min_aspect_ratio <= ratio <= max_aspect_ratio:
+                best = quad
+                best_area = area
+
+    return best
 
 
 def detect_and_crop_document(
