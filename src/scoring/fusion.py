@@ -61,6 +61,7 @@ import numpy as np
 
 from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
 from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean, local_brightness_blocks
+from src.detection.document_crop import detect_and_crop_document
 from src.glare.metrics import glare_ratio, has_colored_background
 from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
@@ -314,8 +315,10 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
 
     Returns:
         dict: overall_score, components (her modül için ham değer + alt-skor),
-        ve kapsam notları.
+        document_detected (belge arkaplandan başarıyla kırpıldı mı) ve
+        kapsam notları.
     """
+    image, document_detected = detect_and_crop_document(image)
     image = _normalize_scale(image)
     glare = score_glare(image)
     components: Dict[str, Dict[str, object]] = {
@@ -334,6 +337,20 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
     return {
         "overall_score": overall,
         "components": components,
+        "document_detected": document_detected,
+        "document_detection_note": (
+            "Belge, fotoğraftaki arkaplandan (masa, sabit kamera kurulumu vb.) "
+            "otomatik olarak kırpıldı — tüm metrikler yalnızca belgenin kendisi "
+            "üzerinde hesaplandı."
+            if document_detected
+            else (
+                "Belge otomatik olarak arkaplandan ayrıştırılamadı — metrikler "
+                "FOTOĞRAFIN TAMAMI üzerinde hesaplandı, bu yüzden arkaplan "
+                "(masa, ışık, vb.) sonucu etkilemiş olabilir. Gerçek veri "
+                "doğrulamasında bulundu: bkz. project_notes.md, "
+                "'Belge tespiti/kırpma eksikliği'."
+            )
+        ),
         "occlusion_note": (
             "ML tabanlı occlusion sinyali (blok-bazlı Random Forest) dahil "
             "edildi — konumdan VE renkten bağımsız çalışır, parmak/el/sticker "
@@ -372,6 +389,7 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
     results/<modül>/scores.csv ve results/<modül>/plots/ altındadır — bu
     fonksiyon yalnızca TEK bir yüklenen görüntü için hızlı bir özet sağlar.
     """
+    image, _document_detected = detect_and_crop_document(image)
     image = _normalize_scale(image)
     blur_all = compute_all_blur_metrics(image)
     darkness_all = compute_all_darkness_metrics(image, block_size=DARKNESS_BLOCK_SIZE)

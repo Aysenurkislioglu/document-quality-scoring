@@ -19,8 +19,18 @@ source .venv/bin/activate
 # 1) Fotoğraflarını anonimleştir (anon_id ata)
 python3 experiments/real_data/1_prepare_dataset.py /path/to/kimlik/klasoru
 
-# 2) Kendi gözünle etiketle (yarıda bırakıp devam edebilirsin)
+# 2) Kendi gözünle etiketle (yarıda bırakıp devam edebilirsin) — İKİ seçenek var:
+
+#    2a) Web sürümü (ÖNERİLEN, tıklanabilir butonlarla): tarayıcıda açılır,
+#        klavye kısayolu ezberlemek gerekmez. http://127.0.0.1:5050
+python3 experiments/real_data/2_label_web.py
+
+#    2b) Klavye sürümü (OpenCV penceresi, tuşlarla): daha hızlı ama
+#        kısayolları bilmek gerekir (bkz. aşağıdaki tablo).
 python3 experiments/real_data/2_label_tool.py
+
+# İkisi de AYNI results/real_data/labels.csv dosyasına yazar — istediğin
+# zaman birinden diğerine geçebilirsin, ilerleme ortak/kesintisiz devam eder.
 
 # 3) Sistemle toplu skorla
 python3 experiments/real_data/3_batch_score.py
@@ -41,7 +51,25 @@ python3 experiments/real_data/4_analyze_accuracy.py
 `results/real_data/` klasörünün tamamı `.gitignore`'da — hiçbiri commit edilmez, GitHub'a
 gitmez. `anon_mapping.csv` da `data/raw/` altında olduğu için aynı şekilde korunuyor.
 
-## Etiketleme tuşları (2_label_tool.py)
+## Web sürümü (2_label_web.py) nasıl kullanılır
+
+Script'i çalıştırıp tarayıcında `http://127.0.0.1:5050` adresini aç. Görüntü tamamen
+kendi bilgisayarında kalır — tarayıcın ile script arasında, dışarı hiç çıkmaz (`app.py`
+ile aynı gizlilik modeli, yalnızca `127.0.0.1`'e bağlı, ağdan erişilemez).
+
+1. Üstteki bayrak butonlarına tıklayarak gördüğün sorunları işaretle (0 veya daha
+   fazla): Bulanık, Parlama, Karanlık, Kapanma/örtülü, Eğik.
+2. Alttaki Kötü / Orta / İyi butonlarından birine tıkla — bu otomatik kaydeder ve
+   sıradaki görüntüye geçer.
+3. "◀ Önceki" ile geri dönüp düzeltebilirsin, "Atla ▶" ile bir görüntüyü etiketsiz
+   geçebilirsin, "Bayrakları temizle" ile o anki işaretleri sıfırlayabilirsin.
+4. İstediğin an sekmeyi/terminali kapatabilirsin (Ctrl+C) — ilerleme her onayda diske
+   yazıldığı için kaybolmaz, script'i tekrar çalıştırdığında kaldığın yerden devam eder.
+
+İstersen klavyeden de `1`/`2`/`3` tuşlarıyla Kötü/Orta/İyi'ye basabilirsin (fare
+kullanmak zorunda değilsin).
+
+## Etiketleme tuşları (2_label_tool.py — klavye/OpenCV sürümü)
 
 | Tuş | Anlamı |
 |---|---|
