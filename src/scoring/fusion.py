@@ -285,12 +285,27 @@ def score_occlusion(image: np.ndarray) -> Dict[str, object]:
     hepsinde rho=1.00, hatalı-pozitif=0 (bkz. results/occlusion/ml_scores.csv)
     — ama yalnızca sentetik yamalarla, bkz. modül docstring'indeki "Kapsamı
     GENİŞLETİLENLER" notu.
+
+    GÜVENİLİRLİK UYARISI (gerçek veri doğrulamasında bulundu, bkz.
+    project_notes.md "Gerçek Veri Doğrulaması — Bulgu 3"): 368 gerçek
+    kimlik fotoğrafında occlusion_raw, gerçek kapanma oranından NEREDEYSE
+    BAĞIMSIZ olarak sürekli ~%44-48 civarında sabitlendi — model, sentetik
+    (düz/vektörel) eğitim verisinde hiç görmediği gerçek kamera dokusunu
+    (sensör gürültüsü, JPEG sıkıştırma) "yabancı nesne" sanıyor (domain
+    gap). Bunu düzeltmek için denenen bir yeniden-eğitim (v4, sentetik
+    gürültü enjeksiyonu) durumu DAHA DA KÖTÜLEŞTİRDİ, geri alındı (bkz.
+    train_occlusion_classifier.py). `reliable=False` — bu skor HÂLÂ
+    hesaplanır ve gösterilir (şeffaflık için) ama `_combine_scores`'a
+    (genel skora) DAHİL EDİLMEZ; tek bir bilinen-bozuk modülün diğer 4
+    modülün doğru sinyalini kirletmesini önlemek için (glare'in beyaz
+    kağıtta kullandığı aynı desen).
     """
     ratio = ml_occlusion_ratio(image)
     return {
         "raw_value": ratio,
         "raw_label": "ml_occlusion_ratio",
         "score": _linear_score(ratio, 1.0, 0.0),  # oran 0=iyi(100 puan), 1=kötü(0 puan)
+        "reliable": False,
     }
 
 
@@ -329,7 +344,13 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         "glare": glare,
     }
 
-    fused = [c["score"] for key, c in components.items() if key != "glare"]
+    # occlusion, gerçek veride güvenilir olmadığı doğrulanana kadar (bkz.
+    # score_occlusion docstring'i) genel skordan HARİÇ tutulur — hesaplanır
+    # ve gösterilir, ama _combine_scores'a dahil edilmez.
+    fused = [
+        c["score"] for key, c in components.items()
+        if key not in ("glare", "occlusion")
+    ]
     if glare.get("reliable"):
         fused.append(glare["score"])
     overall = _combine_scores(fused)
@@ -352,12 +373,14 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
             )
         ),
         "occlusion_note": (
-            "ML tabanlı occlusion sinyali (blok-bazlı Random Forest) dahil "
-            "edildi — konumdan VE renkten bağımsız çalışır, parmak/el/sticker "
-            "gibi herhangi bir yabancı nesneyi yakalar. Ancak OCR tabanlı, "
-            "alan-bazlı occlusion yöntemi (örn. 'Belge No' doğrulaması) hâlâ "
-            "yalnızca önceden bilinen şablonlarla çalışır; bu genel "
-            "yüklemede uygulanmadı."
+            "ML tabanlı occlusion sinyali (blok-bazlı Random Forest) HESAPLANIP "
+            "GÖSTERİLİR ama genel skora DAHİL EDİLMEZ. Gerçek veri doğrulamasında "
+            "(368 kimlik fotoğrafı) bu skorun gerçek kapanma oranından neredeyse "
+            "bağımsız olduğu, sentetik eğitim verisiyle gerçek kamera dokusu "
+            "arasındaki farktan (domain gap) kaynaklandığı bulundu — bkz. "
+            "project_notes.md. Düzeltilene kadar 'güvenilir değil' kabul "
+            "edilip diğer modüllerin doğru sinyalini kirletmemesi için genel "
+            "skordan çıkarıldı (glare'in beyaz kağıtta kullandığı aynı desen)."
         ),
         "glare_note": (
             "Glare tespiti bu projede KİMLİK KARTI/PASAPORT benzeri RENKLİ "
