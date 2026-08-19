@@ -1231,3 +1231,98 @@ sebebi, mockup'ın "metin çubuklarını" gerçek harf yerine DÜZ RENKLİ dikd�
 modül). Kullanıcıya soruldu: gerçek, net çekilmiş bir kimlik kartı fotoğrafında blur skoru
 ne çıkıyor? Cevap: "yüksek çıkıyor (80+), sorun yok" — yani bu, benim basit mockup'ımın bir
 sınırlamasıydı, gerçek sistemde/gerçek fotoğraflarda düzeltme gerektirmiyor.
+
+---
+
+## Gerçek Veri Doğrulaması — 368 Kullanıcı Fotoğrafı (2026-08)
+
+Kullanıcı, gerçek (kimlik) fotoğraflarıyla çalışmak istediğini belirtti. Gizlilik
+kısıtı netti: gerçek fotoğraflar hiçbir şekilde Claude'a gösterilmeyecek/paylaşılmayacak.
+Bu yüzden tamamen YEREL, anonimleştirilmiş bir doğrulama iş akışı kuruldu
+(`experiments/real_data/`, bkz. o klasördeki README.md): 1) anonimleştir (anon_id ata,
+eşleme dosyası asla paylaşılmaz), 2) kullanıcı KENDİ GÖZÜYLE etiketler (önce etiketle,
+sonra skorla — bias'tan kaçınmak için, kullanıcı önerisi), 3) sistemle toplu skorla,
+4) etiket+skor karşılaştırması ile GERÇEK bir doğruluk raporu üret. Claude bu süreçte
+hiçbir görüntüyü görmedi — yalnızca anonim CSV'lerdeki sayısal istatistiklerle çalıştı.
+
+### Bulgu 1 — KRİTİK mimari eksiklik: belge arkaplandan hiç kırpılmıyordu
+
+İlk skorlama sonucu: Spearman rho=0.345 (sentetik veride alışılan rho≈1.00'ın çok altında),
+368 fotoğrafın HİÇBİRİ "iyi" bandına giremedi, "en kötü modül" neredeyse hep darkness/
+occlusion çıktı. Kök neden analizi: 368 fotoğrafın 59'unda darkness_raw (P10 persentil)
+BİREBİR AYNI çıktı (104.613, 3 ondalık basamağa kadar) — farklı fotoğraflar için istatistiksel
+olarak imkansıza yakın. Blok-bazlı inceleme: bu görüntülerin hem en karanlık (grid konumu
+[21,17]) hem en parlak (grid konumu [0,67]) bloğu, hem KONUM hem DEĞER olarak birebir
+eşleşiyordu. Kullanıcı doğruladı: fotoğrafların çoğu SABİT bir kamera konumundan çekilmiş —
+yani metrikler kartın kendisini değil, her çekimde aynı kalan SABİT ARKAPLANI (masa) ölçüyordu.
+
+Kök neden: `compute_document_quality_score`, o güne kadar SADECE sentetik (PIL ile üretilmiş,
+arkaplansız) görüntülerle doğrulanmıştı — bu varsayım (görüntü = belge) hiçbir yerde açıkça
+yazılmamıştı, kod fotoğrafın TAMAMINI doğrudan her metriğe veriyordu.
+
+### Çözüm — belge tespit/kırpma modülü (`src/detection/document_crop.py`)
+
+Klasik CV (Canny kenar tespiti + kontur + 4-köşe dörtgen yaklaşımı + perspektif düzeltme —
+telefon tarayıcı uygulamalarının standart yöntemi, AI değil). Bilinçli tasarım kararı:
+YALNIZCA net bir 4-köşe eşleşmesi kabul edilir. İlk denemede "en büyük konturun
+sınırlayıcı kutusu" gibi gevşek bir yedek eklenmişti — ama bu neredeyse HER konturu
+"belge" sayıp %97 yapay yüksek "tespit oranı" üretti; Claude gerçek fotoğrafları
+göremediği için bu kırpmaların doğru mu yanlış mı olduğu görsel olarak doğrulanamıyordu.
+YANLIŞ kırpma, hiç kırpmamaktan DAHA KÖTÜ olduğu için bu yedek kaldırıldı.
+
+**Görsel doğrulama aracı:** `experiments/real_data/5_preview_crop.py` — orijinal ve
+kırpılmış görüntüyü yan yana gösterir (yalnızca kullanıcının ekranında). Kullanıcı
+örnekleri inceleyip kırpmanın DOĞRU çalıştığını onayladı.
+
+**Sonuç:** 368 fotoğrafın %25'inde (90) güvenilir tespit; kalan %75 eski (arkaplan dahil)
+davranışa düşüyor — `document_detected` alanıyla şeffaf şekilde işaretleniyor. Bu
+düzeltmeyle Spearman rho 0.345 → 0.408'e yükseldi (gerçek ama kapsamla sınırlı iyileşme).
+
+### Bulgu 2 — darkness: kırpılan grupta bile "genel kalite" ile ilişki zayıf
+
+Kırpılan (n=90) grupta darkness_score, kullanıcının "iyi/orta/kötü" etiketiyle neredeyse
+hiç ilişkili değil (rho≈-0.04). Ancak bu muhtemelen bir HATA değil — kullanıcı yalnızca
+2/368 fotoğrafı "karanlık" olarak işaretlemişti, yani bu veri setinde zaten gerçek bir
+karanlık çeşitliliği yok (darkness_raw aralığı dar: 64.6-116.5). "Genel kalite" bu veri
+setinde çoğunlukla BAŞKA defektlerden (bulanıklık, kapanma) etkileniyor — darkness_score'u
+"genel kalite" ile karşılaştırmak yanıltıcı bir test. Açık kalan soru.
+
+### Bulgu 3 — occlusion: kırpma sonrası da düzelmedi, iki ayrı kök neden var
+
+Kırpma occlusion'a hiç fayda sağlamadı: occlusion_raw hem kırpma öncesi hem sonrası
+neredeyse sabit (~%44-48), kalite grupları arasında ayrım yok. İki ayrı neden tespit edildi:
+
+1. **skin_detection.py (ten rengi yöntemi) — kullanılamaz:** Kimlik kartının KENDİ ÜZERİNDE
+   zaten gerçek bir yüz fotoğrafı (gerçek ten rengi) var — bu yöntem bunu "kapatan el"
+   sanıyor. iyi-kalite fotoğraflarda ratio medyanı (0.848) kötü-kalite fotoğraflardan
+   (0.736) DAHA YÜKSEK çıktı — yön TERSİ. Sentetik doğrulamada yüz fotoğrafı içeren bir
+   senaryo hiç test edilmemişti. Şu an zaten fusion'da kullanılmıyor (yalnızca
+   compare_module_methods'ta gösterim amaçlı), bu bulgu onu üretime alma fikrini kapatıyor.
+
+2. **ML (Random Forest) — domain gap doğrulandı, DÜZELTME DENENDİ, İŞE YARAMADI:**
+   Hipotez: model tamamen düz/vektörel sentetik görüntülerle eğitildi, gerçek kameranın
+   "temiz" bölgelerindeki doğal dokusunu (sensör gürültüsü, JPEG sıkıştırma, odak
+   yumuşaklığı) hiç görmedi. `experiments/occlusion/train_occlusion_classifier.py`'ye
+   `apply_camera_realism()` eklenip (%50 olasılıkla sensör gürültüsü + blur + JPEG
+   sıkıştırma + parlaklık jitter uygulanan) v4 modeli eğitildi. SONUÇ: sentetik
+   doğrulamada (run_ml_experiment.py) hâlâ neredeyse mükemmel (çoğu rho=1.00,
+   hatalı-pozitif=0) — ama 368 gerçek fotoğrafta occlusion_raw medyanı %44'ten **%63'e
+   çıktı** (DAHA DA KÖTÜLEŞTİ). Hipotez YANLIŞLANMADI (domain gap gerçek) ama ÇÖZÜM
+   yanlış — sentetik gürültü enjeksiyonu gerçek kamera dokusunun istatistiksel
+   özelliklerini yeterince yakalayamadı. **Model v3'e geri alındı** (bkz. joblib yedeği,
+   `if False:` ile devre dışı bırakılmış v4 çağrıları — kod silinmedi, kayıt için
+   tutuluyor, ama çalıştırılmıyor).
+
+**Açık problem:** Occlusion, gerçek fotoğraflarda hâlâ güvenilir değil. Muhtemel bir
+sonraki adım: sentetik gürültü yerine GERÇEK fotoğraf istatistiklerinden (368 fotoğrafın
+kendisinden, örn. JPEG kalite/gürültü dağılımını ölçüp SENTETİK verideki gürültü
+parametrelerini ona göre kalibre ederek) daha isabetli bir augmentasyon; ya da OCR/alan-
+bazlı yaklaşıma (yüz fotoğrafı bölgesini bilinçli olarak dışlayan) geri dönüş.
+
+### Genel ders
+
+Bu oturum, "sentetik veride mükemmel (rho=1.00)" sonuçların gerçek veride NASIL kırılabileceğinin
+somut bir kataloğu oldu: (a) örtük varsayımlar (arkaplansız görüntü), (b) etiket dağılımının
+darlığı (darkness için yalnızca 2 örnek), (c) domain gap'in sentetik gürültüyle
+düzeltilmeye çalışılması ama başarısız olması. Üçü de projenin "denendi, işe yaramadı"
+kayıt disiplinine (bkz. Glare ML v1-v5) uygun şekilde belgelendi.

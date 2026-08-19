@@ -34,6 +34,29 @@ project_notes.md, "Occlusion — vinyet hatası"). Eğitim verisine artık
 VİNYETLİ (kapanmasız) kart örnekleri de ekleniyor — model, "yumuşak/kademeli
 köşe kararması" ile "gerçek bir yabancı nesne" arasındaki farkı öğreniyor.
 
+v4 DENEMESİ (gerçek kamera dokusu / domain gap) — DENENDİ, İŞE YARAMADI,
+GERİ ALINDI: Kullanıcının 368 gerçek kimlik fotoğrafıyla yapılan
+doğrulamada, occlusion_raw'ın gerçek kapanma oranından NEREDEYSE BAĞIMSIZ
+olarak sürekli ~%44 civarında sabitlendiği bulundu (bkz. project_notes.md,
+"Occlusion — gerçek kamera dokusu / domain gap"). Hipotez: bu script HÂLÂ
+tamamen DÜZ/VEKTÖREL (PIL ile çizilmiş) görüntüler üretiyordu — "temiz"
+(occluder'sız, label=0) örnekler bile neredeyse SIFIR yerel varyansa
+sahipti; gerçek fotoğrafların kapanmamış bölgeleri bile DOĞAL kamera
+dokusu (sensör gürültüsü, JPEG sıkıştırma, hafif odak yumuşaklığı) taşır,
+model bunu hiç görmediği için her bloğu "yabancı nesne" sanıyor olabilirdi.
+
+`apply_camera_realism()` ile eğitim görüntülerinin %50'sine bu artefaktlar
+eklenip yeniden eğitildi. SONUÇ: sentetik doğrulamada (run_ml_experiment.py)
+hâlâ neredeyse mükemmel (çoğu rho=1.00, hatalı-pozitif=0) — ama 368 gerçek
+fotoğrafta occlusion_raw medyanı %44'ten **%63'e çıktı** (DAHA DA KÖTÜLEŞTİ,
+kalite gruplarına göre ayrım hâlâ neredeyse yok). Hipotez YANLIŞLANDI —
+sentetik gürültü enjeksiyonu gerçek kamera dokusunun istatistiksel
+özelliklerini yakalayamadı. Model v3'e (vinyet düzeltmesi, bu fonksiyon
+YOK) GERİ ALINDI — bkz. `if False:` ile devre dışı bırakılmış çağrılar
+aşağıda; kod, denemeyi kayıt altında tutmak için SİLİNMEDİ ama
+ÇALIŞTIRILMIYOR. Occlusion'ın gerçek fotoğraflarda güvenilir hâle
+getirilmesi hâlâ AÇIK bir problem (bkz. project_notes.md, "sonraki adım").
+
 Çıktı: src/occlusion/models/occlusion_rf.joblib
 """
 
@@ -81,6 +104,44 @@ CARD_TRAIN_SCHEMES = {
 }
 CARD_OCCLUDER_COLORS = TRAIN_COLORS  # kartlarda da AYNI 14 renk kullanılır
 VIGNETTE_STRENGTHS = [0.0, 0.15, 0.3, 0.45, 0.6]  # v3: doğal lens karartması negatifleri
+
+
+def apply_camera_realism(rgb_array: np.ndarray, rng: random.Random) -> np.ndarray:
+    """Gerçek telefon kamerası fotoğraflarına özgü artefaktları (sensör
+    gürültüsü, hafif odak yumuşaklığı, parlaklık/kontrast varyasyonu, JPEG
+    sıkıştırma) simüle eder — bkz. modül docstring'i, "v4 düzeltmesi".
+    Hem occluder hem non-occluder eğitim örneklerine uygulanarak modelin
+    bu dokuya karşı değişmezlik öğrenmesini sağlar (yalnızca "occluder
+    mı" ayrımını öğrensin, "gerçekçi doku mu" ayrımını değil)."""
+    import cv2
+
+    img = rgb_array.astype(np.float64)
+
+    # 1) Sensör gürültüsü (hafif — textured yama varyantının NOISE_STD=25'inden
+    # belirgin şekilde küçük, gerçek kamera gürültüsüne daha yakın).
+    noise_std = rng.uniform(2, 9)
+    img = img + np.random.RandomState(rng.randint(0, 1_000_000)).normal(0, noise_std, img.shape)
+    img = np.clip(img, 0, 255).astype(np.uint8)
+
+    # 2) Hafif odak yumuşaklığı.
+    if rng.random() < 0.7:
+        k = rng.choice([3, 5])
+        img = cv2.GaussianBlur(img, (k, k), 0)
+
+    # 3) Parlaklık/kontrast jitter.
+    alpha = rng.uniform(0.85, 1.15)
+    beta = rng.uniform(-15, 15)
+    img = np.clip(img.astype(np.float64) * alpha + beta, 0, 255).astype(np.uint8)
+
+    # 4) JPEG sıkıştırma artefaktı.
+    quality = rng.randint(55, 90)
+    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    ok, enc = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if ok:
+        dec = cv2.imdecode(enc, cv2.IMREAD_COLOR)
+        img = cv2.cvtColor(dec, cv2.COLOR_BGR2RGB)
+
+    return img
 
 
 def apply_vignette(rgb_array: np.ndarray, strength: float) -> np.ndarray:
@@ -152,6 +213,8 @@ def main():
                 for textured in (False, True):
                     rgb_arr = np.array(doc.image.convert("RGB"))
                     patch_bbox = apply_patch(rgb_arr, doc.content_bbox, coverage, color, textured, rng)
+                    if False:  # v4 DENENDİ, İŞE YARAMADI, GERİ ALINDI (bkz. project_notes.md) -- rng.random() < 0.5 idi, bkz. modül docstring'i
+                        rgb_arr = apply_camera_realism(rgb_arr, rng)
                     bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
                     X, Y = extract_labeled_blocks(bgr, doc.content_bbox, patch_bbox)
                     X_train.extend(X)
@@ -168,6 +231,8 @@ def main():
                     card_img = render_id_card(scheme, rng)
                     rgb_arr = np.array(card_img)
                     patch_bbox = apply_patch(rgb_arr, card_bbox, coverage, color, textured, rng)
+                    if False:  # v4 DENENDİ, İŞE YARAMADI, GERİ ALINDI (bkz. project_notes.md) -- rng.random() < 0.5 idi
+                        rgb_arr = apply_camera_realism(rgb_arr, rng)
                     bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
                     X, Y = extract_labeled_blocks(bgr, card_bbox, patch_bbox)
                     X_train.extend(X)
@@ -180,6 +245,8 @@ def main():
         for strength in VIGNETTE_STRENGTHS:
             card_img = render_id_card(scheme, rng)
             rgb_arr = apply_vignette(np.array(card_img), strength)
+            if False:  # v4 DENENDİ, İŞE YARAMADI, GERİ ALINDI (bkz. project_notes.md) -- rng.random() < 0.5 idi
+                rgb_arr = apply_camera_realism(rgb_arr, rng)
             bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
             X, Y = extract_labeled_blocks(bgr, card_bbox, None)  # patch_bbox=None -> hepsi label=0
             X_train.extend(X)
