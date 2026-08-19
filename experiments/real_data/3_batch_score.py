@@ -64,11 +64,14 @@ def main():
         result = compute_document_quality_score(img)
         comps = result["components"]
 
-        # "en kötü modül" — fusion.py'nin nihai skoru hesaplarken kullandığı
-        # aynı mantık (glare yalnızca uygulanabilirse dahil).
+        # "en kötü modül" — fusion.py'nin nihai skoru hesaplarken KULLANDIĞI
+        # aynı kümeyi baz alır: skor yoksa (glare uygulanamazsa) VEYA
+        # reliable=False ise (şu an occlusion — bkz. score_occlusion
+        # docstring'i) bu modül aday bile sayılmaz, çünkü zaten
+        # overall_score'a dahil edilmiyor.
         applicable_scores = {
             k: v["score"] for k, v in comps.items()
-            if v["score"] is not None
+            if v["score"] is not None and v.get("reliable", True)
         }
         worst_module = min(applicable_scores, key=applicable_scores.get) if applicable_scores else None
 
