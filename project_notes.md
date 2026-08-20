@@ -1360,3 +1360,47 @@ persentillerinden — P95 civarı BAD, P5-P10 civarı GOOD).
 Darkness hâlâ en sık "en kötü modül" (355/368) — bu artık formülün kırılganlığından
 değil, muhtemelen darkness'ın kendi (ayrı belgelenen) sınırlı veri çeşitliliğinden
 kaynaklanıyor; bir sonraki açık soru.
+
+### Darkness (renkli zemin) — GERÇEKTEN ZARARLI bulundu, genel skordan çıkarıldı
+
+Occlusion'da yapılan aynı yöntem: kullanıcı 368 fotoğrafın TAMAMI için ek olarak
+karanlık ŞİDDETİNİ (hiç/az/çok) etiketledi (`experiments/real_data/
+2c_label_darkness.py`). Occlusion'ın aksine, bu sefer sonuç OLUMSUZ çıktı:
+
+- **Karanlık şiddeti vs. genel kalite kararı: rho=-0.03** (neredeyse sıfır) —
+  bu veri setinde karanlık, kaliteyi neredeyse hiç etkilemiyor (muhtemelen çoğu
+  fotoğraf benzer/sabit ışıkta çekildiği için gerçek çeşitlilik az).
+- **Karanlık şiddeti vs. sistemin darkness_score'u (P10): rho=-0.045** (neredeyse
+  sıfır) — metrik gerçek algılanan karanlığı YAKALAMIYOR.
+- Alternatif olarak TÜM klasik parlaklık istatistikleri denendi (global ortalama/
+  medyan, P5-P95, blok-bazlı ortalama, yerel kontrast) — hiçbiri işe yaramadı
+  (en iyisi rho=-0.148, hâlâ zayıf). Muhtemel neden: telefon kameralarının
+  otomatik pozlaması çoğu fotoğrafı benzer parlaklığa getiriyor, gerçek
+  aydınlatma farkını piksel parlaklığında gizliyor.
+
+**Karar verici deney:** darkness'ı genel skordan çıkarmanın etkisi doğrudan
+ölçüldü — Spearman rho **0.4405 → 0.6207**'ye yükseldi (tam eşleşme %34.8→%53.5,
+"en kötü modül" isabeti %3.8→%28.8). Yani darkness (P10, renkli zemin) şu anki
+haliyle genel skoru İYİLEŞTİRMİYOR, AKTİF OLARAK KÖTÜLEŞTİRİYOR.
+
+**Karar:** `score_darkness`'a `reliable=False` eklendi (YALNIZCA renkli zeminde —
+`has_colored_background=True` dalı). Beyaz kağıt dalı (`darkest_block_mean`)
+gerçek veriyle HENÜZ test edilmedi, dokunulmadı (`reliable=True` varsayılan).
+`fused` listesi artık her modülün `reliable` alanına (`.get("reliable", True)`)
+göre genel bir şekilde filtreleniyor — glare/occlusion/darkness'ın hepsi aynı
+mekanizmayı paylaşıyor.
+
+### Bu oturumun toplam rho ilerlemesi (368 gerçek fotoğraf)
+
+| Aşama | rho | Not |
+|---|---|---|
+| Başlangıç (arkaplan sorunu var, kırpma yok) | 0.345 | |
+| Belge kırpma eklendi (%25 kapsam) | 0.408 | |
+| Kırpma kapsamı genişletildi (%29) | 0.401 | gürültü içinde, kayda değer değil |
+| Occlusion genel skordan çıkarıldı (geçici) | 0.370 | darkness'ın gizli zararı ortaya çıktı |
+| MIN_WEIGHT formülü test edildi | 0.371 (en iyisi) | formül suçlu değilmiş |
+| **Occlusion → renk sapması yöntemi (gerçek etiketle kalibre)** | **0.4405** | ✅ gerçek düzeltme |
+| **Darkness (renkli zemin) genel skordan çıkarıldı (gerçek kanıtla)** | **0.6207** | ✅ en büyük tek sıçrama |
+
+Başlangıçtan bugüne rho neredeyse 2 katına çıktı (0.345 → 0.621) — hepsi gerçek,
+anonim, yerel veriyle ölçüldü, hiçbir adımda görüntü Claude'a gösterilmedi.

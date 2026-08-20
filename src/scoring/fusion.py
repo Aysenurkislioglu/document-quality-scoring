@@ -218,10 +218,28 @@ def score_darkness(image: np.ndarray) -> Dict[str, object]:
     Düz beyaz kağıtta hâlâ `darkest_block_mean` (MIN) kullanılır —
     experiments/darkness deneyinde bilinçli seçilmişti (küçük, kritik bir
     kimlik alanının [örn. "Belge No"] karanlık kalmasını yakalamak için) ve
-    bu senaryoda doğrulanmıştı (rho≈-0.83). BİLİNEN SINIRLAMA (beyaz
-    kağıtta hâlâ geçerli): darkest_block_mean, metin yoğunluğuyla karışır —
-    results/darkness/scores_local.csv'de HİÇ karartma uygulanmamış
-    belgelerde bile bu değerin 52-168 arasında değiştiği gözlemlenmiştir.
+    bu senaryoda doğrulanmıştı (rho≈-0.83, yalnızca SENTETİK veriyle).
+    BİLİNEN SINIRLAMA (beyaz kağıtta hâlâ geçerli): darkest_block_mean,
+    metin yoğunluğuyla karışır — results/darkness/scores_local.csv'de HİÇ
+    karartma uygulanmamış belgelerde bile bu değerin 52-168 arasında
+    değiştiği gözlemlenmiştir.
+
+    GÜVENİLİRLİK UYARISI — RENKLİ ZEMİN (gerçek veri doğrulamasında
+    bulundu, bkz. project_notes.md "Gerçek Veri Doğrulaması"): Kullanıcı
+    368 gerçek kimlik fotoğrafının TAMAMI için ek olarak karanlık
+    ŞİDDETİNİ (hiç/az/çok) etiketledi. Sonuç: darkness_score (P10) ile
+    GERÇEKTEN ALGILANAN karanlık arasında rho=-0.045 (neredeyse sıfır —
+    metrik gerçek karanlığı YAKALAMIYOR). Alternatif olarak denenen TÜM
+    klasik parlaklık istatistikleri de (global ortalama/medyan, P5-P95,
+    blok-bazlı ortalama, yerel kontrast) aynı şekilde başarısız oldu
+    (en iyisi rho=-0.148, hâlâ zayıf) — muhtemelen telefon kameralarının
+    otomatik pozlaması çoğu fotoğrafı benzer parlaklığa getiriyor, gerçek
+    aydınlatma farkını piksel parlaklığında gizliyor. Genel skordan
+    darkness'ı ÇIKARMAK, gerçek 368 fotoğrafta Spearman rho'yu 0.44'ten
+    0.62'ye YÜKSELTTİ (bkz. project_notes.md) — yani darkness şu anki
+    haliyle genel skoru İYİLEŞTİRMİYOR, KÖTÜLEŞTİRİYOR. `reliable=False`
+    — RENKLİ zeminde. Beyaz kağıt (darkest_block_mean) HENÜZ gerçek
+    veriyle test edilmedi, bu yüzden dokunulmadı (varsayılan reliable=True).
     """
     if has_colored_background(image):
         blocks = local_brightness_blocks(image, block_size=DARKNESS_BLOCK_SIZE)
@@ -230,12 +248,14 @@ def score_darkness(image: np.ndarray) -> Dict[str, object]:
             "raw_value": p10,
             "raw_label": "brightness_p10_of_blocks (renkli zemin)",
             "score": _linear_score(p10, DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD),
+            "reliable": False,
         }
     dbm = darkest_block_mean(image, block_size=DARKNESS_BLOCK_SIZE)
     return {
         "raw_value": dbm,
         "raw_label": "darkest_block_mean",
         "score": _linear_score(dbm, DARKNESS_BAD, DARKNESS_GOOD),
+        "reliable": True,
     }
 
 
@@ -350,15 +370,14 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         "glare": glare,
     }
 
-    # blur/darkness/skew her zaman dahil; glare ve occlusion yalnızca
-    # reliable=True ise dahil edilir (glare: yalnızca renkli zeminde;
-    # occlusion: bkz. score_occlusion docstring'i — şu an reliable=True,
-    # ama bu koşullu kalması BİLİNÇLİ — ileride başka bir sebeple
-    # reliable=False dönerse genel skoru otomatik kirletmesin).
-    fused = [c["score"] for key, c in components.items() if key not in ("glare", "occlusion")]
-    for key in ("glare", "occlusion"):
-        if components[key].get("reliable"):
-            fused.append(components[key]["score"])
+    # Her modül yalnızca reliable=True ise (ya da hiç "reliable" alanı
+    # yoksa, ki bu varsayılan olarak güvenilir demektir — bkz. blur/skew)
+    # genel skora dahil edilir. glare: yalnızca renkli zeminde. occlusion:
+    # bkz. score_occlusion docstring'i (gerçek veriyle kalibre edildi,
+    # reliable=True). darkness: RENKLİ zeminde reliable=False (bkz.
+    # score_darkness docstring'i — gerçek veride hem gerçek karanlıkla
+    # hem genel kaliteyle ilişkisi yok, genel skoru kirletiyordu).
+    fused = [c["score"] for key, c in components.items() if c.get("reliable", True)]
     overall = _combine_scores(fused)
 
     return {
