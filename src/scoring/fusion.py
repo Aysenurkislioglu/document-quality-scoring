@@ -414,6 +414,21 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
             "hatalı-pozitif=0). Düz beyaz kağıt kapsam dışıdır — bu durumda "
             "glare 'uygulanamaz' olarak işaretlenir, tahmini skor üretilmez."
         ),
+        "darkness_note": (
+            "Darkness (renkli zeminde) HESAPLANIP GÖSTERİLİR ama genel skora "
+            "DAHİL EDİLMEZ. Gerçek veri doğrulamasında (368 kimlik fotoğrafı, "
+            "gerçek karanlık şiddeti etiketleriyle), bu skorun hem gerçek "
+            "algılanan karanlıkla hem genel kaliteyle neredeyse hiç ilişkili "
+            "olmadığı (rho≈-0.04) VE genel skoru aktif olarak kötüleştirdiği "
+            "(çıkarılınca rho 0.44'ten 0.62'ye çıktı) bulundu — bkz. "
+            "project_notes.md. Denenen tüm alternatif parlaklık istatistikleri "
+            "de başarısız oldu; muhtemel neden, telefon kameralarının otomatik "
+            "pozlamasının gerçek aydınlatma farkını piksel parlaklığında "
+            "gizlemesi. Beyaz kağıtta (darkest_block_mean) bu sorun henüz "
+            "gerçek veriyle test edilmedi, hâlâ genel skora dahildir."
+            if components["darkness"].get("reliable") is False
+            else None
+        ),
         "calibration_note": (
             "Bu skor, gerçek etiketli veriyle kalibre edilmiş bir ML modelinin "
             "çıktısı değildir; literatür + sentetik deneylerden esinlenen "

@@ -397,7 +397,7 @@
           {% endfor %}
         </div>
 
-        <p class="notes reveal">{{ result.calibration_note }}<br>{{ result.occlusion_note }}<br>{{ result.glare_note }}</p>
+        <p class="notes reveal">{{ result.calibration_note }}<br>{{ result.occlusion_note }}<br>{{ result.glare_note }}{% if result.darkness_note %}<br>{{ result.darkness_note }}{% endif %}</p>
       {% endif %}
     {% endif %}
 
