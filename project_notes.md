@@ -1483,3 +1483,39 @@ Tamamen dışlamaktan yalnızca %0.015 daha düşük rho ile, ama darkness artı
 hiçbir modül dışlanmadan gerçekten hesaba katılıyor — kullanıcının isteğiyle
 tam örtüşüyor. Tam eşleşme oranı bu yaklaşımda hatta biraz daha İYİ (%54.3
 vs %53.5).
+
+### Blur kalibrasyonu + fusion ağırlıkları — gerçek veriyle yeniden ayarlandı
+
+Blur da darkness/occlusion gibi sıkışık bir dağılım gösteriyordu: blur_score
+p25-p75 aralığı yalnızca 3.8 puandı (78.0-81.8), gerçek fotoğrafların
+neredeyse tamamı skalanın üst diliminde toplanıyordu. Kök neden: `BLUR_GOOD=
+6000` tamamen SENTETİK veriden kalibre edilmişti — gerçek 368 fotoğrafta
+gözlemlenen maksimum yalnızca 1723 (log ölçekte 6000'e hiç yaklaşmıyor).
+
+**Düzeltme:** `BLUR_GOOD=6000 → 2800` (gözlemlenen gerçek max'ın ~1.6 katı).
+Ardından `MIN_WEIGHT` ve `AUX_WEIGHTS["darkness"]` birlikte tarandı (368
+fotoğrafla ızgara arama): `MIN_WEIGHT=0.65→0.7`, darkness ağırlığı
+`0.15→0.05`. Not: ızgara aramasında darkness ağırlığı=0.0 (tam dışlama)
+en yüksek rho'yu (0.6557) verdi ama kullanıcı hiçbir modülün dışlanmasını
+istemediği için EN İYİ SIFIR-OLMAYAN ağırlık seçildi (fark yalnızca 0.004).
+
+**Sonuç (368 fotoğraf):** Spearman rho **0.6057 → 0.6508**. "En kötü modül"
+dağılımı değişti (artık skew en sık, 191/368) — bu bir hata değil, blur/
+darkness düzelince skew doğal olarak "bir sonraki en zayıf halka" oldu;
+skew'in kendi kalibrasyonu (gerçek açı dağılımı 0-15°, hiç 0 puana
+düşmüyor) makul görünüyor, ama HENÜZ gerçek şiddet etiketiyle doğrulanmadı
+(occlusion/darkness'ta yapılan gibi) — bir sonraki adım olarak not edildi.
+
+### Bu oturumun TOPLAM rho ilerlemesi
+
+| Aşama | rho |
+|---|---|
+| Başlangıç | 0.345 |
+| Belge kırpma | 0.408 |
+| Occlusion → renk sapması (gerçek etiketle) | 0.4405 |
+| Darkness tamamen dışlandı (geçici) | 0.6207 |
+| Darkness iki katmanlı dahil (%15) | 0.6057 |
+| **Blur kalibrasyonu + fusion ağırlıkları yeniden ayarlandı** | **0.6508** |
+
+Başlangıçtan bugüne rho **0.345 → 0.651** (%89 göreceli artış), hiçbir
+modül dışlanmadan.

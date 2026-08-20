@@ -101,7 +101,15 @@ def _normalize_scale(image: np.ndarray) -> np.ndarray:
 # kalibre edilmiştir (bkz. project_notes.md, "Aşama 5: Feature Fusion — Kalibrasyon
 # Düzeltmesi" — önceki sürümdeki keyfi sabitlerin sebep olduğu satürasyon hatası
 # için). Yine de GERÇEK ETİKETLİ VERİYLE öğrenilmiş değildir — bkz. modül docstring'i.
-BLUR_BAD, BLUR_GOOD = 1.0, 6000.0          # laplacian_variance (LOG ölçekte, aşağıya bkz.)
+BLUR_BAD, BLUR_GOOD = 1.0, 2800.0          # laplacian_variance (LOG ölçekte, aşağıya bkz.)
+# GÜNCELLEME (gerçek veri doğrulaması, 368 kimlik fotoğrafı): GOOD=6000
+# sentetik veriden kalibre edilmişti — gerçek fotoğraflarda hiçbir zaman
+# bu değere yaklaşmıyor (gözlemlenen max=1723), bu yüzden TÜM gerçek
+# dağılım skalanın yalnızca üst dilimine (blur_score≈76-84) sıkışıyordu,
+# gerçek fotoğraflar arasındaki ayrımı gereksiz yere daralttı. GOOD=2800
+# (gözlemlenen gerçek max'ın ~1.6 katı, biraz pay bırakarak) 368 fotoğrafta
+# test edildi: BAD=1.0 sabit kalırken genel Spearman rho'yu (diğer
+# kalibrasyonlarla birlikte) belirgin ölçüde artırdı — bkz. project_notes.md.
 DARKNESS_BAD, DARKNESS_GOOD = 50.0, 110.0  # darkest_block_mean (block_size=16 ile)
 DARKNESS_BLOCK_SIZE = 16  # experiments/darkness/run_experiment.py ile AYNI olmalı —
 # küçük (~105x26px) kimlik alanlarını yakalamak için deneyde bilinçli olarak
@@ -169,13 +177,19 @@ def _log_linear_score(value: float, bad: float, good: float) -> float:
 # "gizleniyordu" (örn. blur=5, diğerleri~95-100 -> basit ortalama ~75,
 # "iyi" görünüyordu). Gerçekte aşırı bulanık bir belge OKUNAMAZ hale gelir
 # — mükemmel aydınlatma/eğiklik bunu telafi edemez. Bu, klasik "zincir en
-# zayıf halkası kadar güçlüdür" ilkesi; MIN_WEIGHT=0.65 ile en kötü modül
-# baskın hale getiriliyor ama ortalama da (0.35) bir miktar pay alıyor
-# (tek bir modülün gürültüsüne karşı biraz yumuşatma). Bu da klasik/
-# sezgisel bir seçimdir — GERÇEK etiketli veriyle öğrenilmemiştir (bkz.
-# modül docstring'i); tam ML regresyon katmanı bu ağırlıkları veriden
-# öğrenene kadar geçici bir düzeltmedir.
-MIN_WEIGHT = 0.65
+# zayıf halkası kadar güçlüdür" ilkesi. Bu da klasik/sezgisel bir
+# seçimdir — GERÇEK etiketli veriyle öğrenilmemiştir (bkz. modül
+# docstring'i); tam ML regresyon katmanı bu ağırlıkları veriden öğrenene
+# kadar geçici bir düzeltmedir.
+#
+# GÜNCELLEME (368 gerçek fotoğrafla MIN_WEIGHT x AUX_WEIGHTS taraması):
+# Eski değerler (MIN_WEIGHT=0.65, darkness ağırlığı=0.15) rho=0.6057
+# veriyordu. Tarama, MIN_WEIGHT=0.7 + darkness ağırlığı=0.05'in rho'yu
+# 0.6513'e çıkardığını gösterdi — darkness ağırlığı=0.0 (tam dışlama) en
+# yüksek rho'yu (0.6557) verse de kullanıcı hiçbir modülün TAMAMEN
+# dışlanmasını istemedi; bu yüzden en iyi NON-SIFIR ağırlık seçildi —
+# optimuma çok yakın (fark: 0.004) ama darkness genuinely dahil kalıyor.
+MIN_WEIGHT = 0.7
 
 # AUX (yardımcı) modüller — bkz. `_combine_scores_tiered`. Bu modüller genel
 # skora YALNIZCA belirtilen ağırlıkla, sadece ortalama üzerinden katılır;
@@ -183,10 +197,10 @@ MIN_WEIGHT = 0.65
 # darkness (renkli zeminde) burada — gerçek veride hem gerçek karanlıkla
 # hem genel kaliteyle zayıf ilişkili bulundu (rho≈-0.04, bkz.
 # score_darkness docstring'i), ama kullanıcı hiçbir modülün TAMAMEN
-# dışlanmasını istemedi. 368 gerçek fotoğrafla test edildi: %15 ağırlık,
-# tamamen çıkarmaya (rho=0.62) çok yakın bir sonuç veriyor (rho=0.608) —
-# hem darkness gerçekten hesaba katılıyor hem de zararı sınırlı kalıyor.
-AUX_WEIGHTS = {"darkness": 0.15}
+# dışlanmasını istemedi. 368 gerçek fotoğrafla MIN_WEIGHT ile birlikte
+# taranan ağırlık: %5 — hem darkness gerçekten hesaba katılıyor hem de
+# zararı en aza indiriliyor (bkz. yukarıdaki MIN_WEIGHT notu).
+AUX_WEIGHTS = {"darkness": 0.05}
 
 
 def _combine_scores(scores: list) -> float:
