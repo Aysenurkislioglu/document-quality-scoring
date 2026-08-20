@@ -63,6 +63,7 @@ from src.blur.metrics import compute_all_blur_metrics, laplacian_variance
 from src.darkness.metrics import compute_all_darkness_metrics, darkest_block_mean, local_brightness_blocks
 from src.detection.document_crop import detect_and_crop_document
 from src.glare.metrics import glare_ratio, has_colored_background
+from src.occlusion.color_anomaly import color_anomaly_ratio
 from src.occlusion.ml_detection import ml_occlusion_ratio
 from src.occlusion.skin_detection import skin_occlusion_ratio
 from src.skew.metrics import estimate_skew_hough, estimate_skew_projection_profile
@@ -124,6 +125,13 @@ DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD = 60.0, 140.0  # P10 (persentil), YALNIZCA
 # blok) karşı çok daha dayanıklı, ama gerçek/yaygın bir aydınlatma sorununu
 # (örn. lens vinyeti) hâlâ yakalıyor — bkz. project_notes.md, "Darkness —
 # kimlik kartı hatası".
+
+OCCLUSION_COLOR_BAD, OCCLUSION_COLOR_GOOD = 0.40, 0.14  # color_anomaly_ratio,
+# 368 GERÇEK kimlik fotoğrafının kendi dağılımından (persentiller) türetildi
+# (bkz. src/occlusion/color_anomaly.py docstring'i). GOOD=0.14 ≈ genel P5-P10
+# (çoğu "az" kapanmalı fotoğrafın oturduğu bant). BAD=0.40 ≈ P95'in biraz
+# üzeri (gözlemlenen "çok" kapanmalı fotoğrafların çoğunu kapsayacak kadar
+# geniş, ama uç aykırı değerlere (max=0.70) doymayacak kadar dar).
 
 
 def _linear_score(value: float, bad: float, good: float) -> float:
@@ -278,34 +286,32 @@ def score_glare(image: np.ndarray) -> Dict[str, object]:
 
 
 def score_occlusion(image: np.ndarray) -> Dict[str, object]:
-    """ML tabanlı occlusion alt-skoru (yüksek=kapanma yok=iyi).
+    """Occlusion alt-skoru — renk sapması (color anomaly) yöntemi,
+    GERÇEK VERİYLE kalibre edildi (yüksek=kapanma yok=iyi).
 
-    Konumdan VE renkten bağımsız çalışır (bkz. src/occlusion/ml_detection.py).
-    Sentetik veriyle doğrulanmıştır: 5 GÖRÜLMEMİŞ renk/doku kombinasyonunun
-    hepsinde rho=1.00, hatalı-pozitif=0 (bkz. results/occlusion/ml_scores.csv)
-    — ama yalnızca sentetik yamalarla, bkz. modül docstring'indeki "Kapsamı
-    GENİŞLETİLENLER" notu.
+    GEÇMİŞ (bkz. project_notes.md, "Gerçek Veri Doğrulaması"): Bu
+    modülün önceki iki sürümü de (ten rengi, ML/Random Forest) 368 gerçek
+    kimlik fotoğrafında başarısız oldu — sırasıyla kartın kendi üzerindeki
+    yüz fotoğrafıyla karışma ve sentetik-gerçek domain gap'i yüzünden.
+    Kullanıcının kapanma ŞİDDETİNİ (az/orta/çok) ek olarak etiketlemesiyle
+    (projede İLK KEZ occlusion için gerçek, dereceli ground-truth), bu
+    yöntem doğrudan o etiketlerle geliştirilip kalibre edildi:
+        color_anomaly_ratio vs. gerçek kapanma şiddeti: rho=0.56
+        (eski ML yöntemi: rho=-0.14, ten rengi yöntemi: yön YANLIŞ)
+    Detaylı yöntem ve doğrulama: src/occlusion/color_anomaly.py.
 
-    GÜVENİLİRLİK UYARISI (gerçek veri doğrulamasında bulundu, bkz.
-    project_notes.md "Gerçek Veri Doğrulaması — Bulgu 3"): 368 gerçek
-    kimlik fotoğrafında occlusion_raw, gerçek kapanma oranından NEREDEYSE
-    BAĞIMSIZ olarak sürekli ~%44-48 civarında sabitlendi — model, sentetik
-    (düz/vektörel) eğitim verisinde hiç görmediği gerçek kamera dokusunu
-    (sensör gürültüsü, JPEG sıkıştırma) "yabancı nesne" sanıyor (domain
-    gap). Bunu düzeltmek için denenen bir yeniden-eğitim (v4, sentetik
-    gürültü enjeksiyonu) durumu DAHA DA KÖTÜLEŞTİRDİ, geri alındı (bkz.
-    train_occlusion_classifier.py). `reliable=False` — bu skor HÂLÂ
-    hesaplanır ve gösterilir (şeffaflık için) ama `_combine_scores`'a
-    (genel skora) DAHİL EDİLMEZ; tek bir bilinen-bozuk modülün diğer 4
-    modülün doğru sinyalini kirletmesini önlemek için (glare'in beyaz
-    kağıtta kullandığı aynı desen).
+    `reliable=True` — bu, projede gerçek (sentetik olmayan) veriyle
+    doğrudan kalibre edilmiş İLK modüldür. rho=0.56 mükemmel değil (bu
+    projedeki sentetik doğrulamaların çok altında) ama önceki yöntemlerden
+    belirgin ölçüde iyi ve genel skora dahil edilecek kadar güvenilir
+    bulundu.
     """
-    ratio = ml_occlusion_ratio(image)
+    ratio = color_anomaly_ratio(image)
     return {
         "raw_value": ratio,
-        "raw_label": "ml_occlusion_ratio",
-        "score": _linear_score(ratio, 1.0, 0.0),  # oran 0=iyi(100 puan), 1=kötü(0 puan)
-        "reliable": False,
+        "raw_label": "color_anomaly_ratio",
+        "score": _linear_score(ratio, OCCLUSION_COLOR_BAD, OCCLUSION_COLOR_GOOD),
+        "reliable": True,
     }
 
 
@@ -344,15 +350,15 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         "glare": glare,
     }
 
-    # occlusion, gerçek veride güvenilir olmadığı doğrulanana kadar (bkz.
-    # score_occlusion docstring'i) genel skordan HARİÇ tutulur — hesaplanır
-    # ve gösterilir, ama _combine_scores'a dahil edilmez.
-    fused = [
-        c["score"] for key, c in components.items()
-        if key not in ("glare", "occlusion")
-    ]
-    if glare.get("reliable"):
-        fused.append(glare["score"])
+    # blur/darkness/skew her zaman dahil; glare ve occlusion yalnızca
+    # reliable=True ise dahil edilir (glare: yalnızca renkli zeminde;
+    # occlusion: bkz. score_occlusion docstring'i — şu an reliable=True,
+    # ama bu koşullu kalması BİLİNÇLİ — ileride başka bir sebeple
+    # reliable=False dönerse genel skoru otomatik kirletmesin).
+    fused = [c["score"] for key, c in components.items() if key not in ("glare", "occlusion")]
+    for key in ("glare", "occlusion"):
+        if components[key].get("reliable"):
+            fused.append(components[key]["score"])
     overall = _combine_scores(fused)
 
     return {
@@ -373,14 +379,15 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
             )
         ),
         "occlusion_note": (
-            "ML tabanlı occlusion sinyali (blok-bazlı Random Forest) HESAPLANIP "
-            "GÖSTERİLİR ama genel skora DAHİL EDİLMEZ. Gerçek veri doğrulamasında "
-            "(368 kimlik fotoğrafı) bu skorun gerçek kapanma oranından neredeyse "
-            "bağımsız olduğu, sentetik eğitim verisiyle gerçek kamera dokusu "
-            "arasındaki farktan (domain gap) kaynaklandığı bulundu — bkz. "
-            "project_notes.md. Düzeltilene kadar 'güvenilir değil' kabul "
-            "edilip diğer modüllerin doğru sinyalini kirletmemesi için genel "
-            "skordan çıkarıldı (glare'in beyaz kağıtta kullandığı aynı desen)."
+            "Occlusion sinyali artık renk sapması (color anomaly) yöntemiyle "
+            "hesaplanıyor — bu, projede GERÇEK (sentetik olmayan) kapanma "
+            "şiddeti etiketleriyle doğrudan kalibre edilen İLK modül (368 "
+            "kimlik fotoğrafı, rho=0.56). Önceki iki yöntem (ten rengi, ML/"
+            "Random Forest) gerçek fotoğraflarda başarısız olmuştu — bkz. "
+            "project_notes.md, 'Gerçek Veri Doğrulaması'. rho=0.56 mükemmel "
+            "değil (bu projedeki sentetik doğrulamaların çok altında) ama "
+            "önceki yöntemlerden belirgin ölçüde iyi; hâlâ bu projenin en "
+            "az kesin modülü olarak kabul edilmeli."
         ),
         "glare_note": (
             "Glare tespiti bu projede KİMLİK KARTI/PASAPORT benzeri RENKLİ "

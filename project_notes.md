@@ -1326,3 +1326,37 @@ somut bir kataloğu oldu: (a) örtük varsayımlar (arkaplansız görüntü), (b
 darlığı (darkness için yalnızca 2 örnek), (c) domain gap'in sentetik gürültüyle
 düzeltilmeye çalışılması ama başarısız olması. Üçü de projenin "denendi, işe yaramadı"
 kayıt disiplinine (bkz. Glare ML v1-v5) uygun şekilde belgelendi.
+
+### Occlusion — GERÇEK ÇÖZÜLDÜ: renk sapması yöntemi + gerçek şiddet etiketleri
+
+Kullanıcı 368 fotoğrafın TAMAMI için ek olarak kapanma ŞİDDETİNİ (az/orta/çok)
+etiketledi (`experiments/real_data/2b_label_severity.py`) — projede İLK KEZ
+occlusion için gerçek, dereceli ground-truth. Sonuç netti:
+
+**Kapanma şiddeti vs. kullanıcının genel kalite kararı: rho=-0.83** (çok güçlü) —
+bu veri setinde genel kaliteyi asıl belirleyen şey kapanma derecesi, blur/darkness/
+skew'den çok daha güçlü (onların rho'su -0.30 ile -0.47 arası).
+
+Bu gerçek etiketlerle üç aday test edildi:
+- Eski ML (Random Forest) occlusion_score: rho=-0.14 (çok zayıf)
+- Yeni **renk sapması (color anomaly)** yöntemi (`src/occlusion/color_anomaly.py`,
+  Lab uzayında medyan renkten sapan piksellerin oranı, eşik=50, 368 fotoğrafın
+  persentillerinden kalibre edildi): **rho=0.56** — belirgin ölçüde iyi.
+
+**Entegrasyon:** `score_occlusion`, `ml_occlusion_ratio` yerine `color_anomaly_ratio`
+kullanacak şekilde değiştirildi, `reliable=True` olarak işaretlendi ve genel skora
+geri eklendi (`OCCLUSION_COLOR_BAD=0.40, GOOD=0.14`, 368 fotoğrafın gerçek
+persentillerinden — P95 civarı BAD, P5-P10 civarı GOOD).
+
+**Ölçülen etki (368 fotoğrafın tamamı yeniden skorlandı):**
+| Metrik | Önce | Sonra |
+|---|---|---|
+| Genel Spearman rho | 0.370 | 0.4405 |
+| occlusion_score vs. gerçek şiddet | rho=-0.14 | rho=-0.56 |
+| "iyi" bandına giren fotoğraf | 2/368 | 12/368 |
+
+**Bilinen sınırlama:** rho=0.56 mükemmel değil (sentetik doğrulamaların çok altında)
+— occlusion hâlâ bu projenin en az kesin modülü, ama artık gerçekten kullanılabilir.
+Darkness hâlâ en sık "en kötü modül" (355/368) — bu artık formülün kırılganlığından
+değil, muhtemelen darkness'ın kendi (ayrı belgelenen) sınırlı veri çeşitliliğinden
+kaynaklanıyor; bir sonraki açık soru.
