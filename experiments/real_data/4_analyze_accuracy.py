@@ -23,10 +23,12 @@ LABELS_PATH = PROJECT_ROOT / "results" / "real_data" / "labels.csv"
 SCORES_PATH = PROJECT_ROOT / "results" / "real_data" / "scores.csv"
 SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "severity.csv"
 DARKNESS_SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "darkness_severity.csv"
+SKEW_SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "skew_severity.csv"
 REPORT_PATH = PROJECT_ROOT / "results" / "real_data" / "accuracy_report.txt"
 
 SEVERITY_ORDINAL = {"az": 0, "orta": 1, "cok": 2}
 DARKNESS_SEVERITY_ORDINAL = {"hic": 0, "az": 1, "cok": 2}
+SKEW_SEVERITY_ORDINAL = {"duz": 0, "az": 1, "cok": 2}
 
 QUALITY_ORDINAL = {"kotu": 0, "orta": 1, "iyi": 2}
 # Her defekt etiketi -> ilgili sistem modülü (yüksek skor = iyi, bu yüzden
@@ -189,6 +191,32 @@ def main():
             emit("")
             emit(f"6) Karanlık şiddeti dosyası var ama yalnızca {len(dsev_ids)} ortak "
                  f"görüntü var (>=5 gerekiyor) — 2c_label_darkness.py ile daha fazla etiketle.")
+
+    # --- 7) (opsiyonel) Eğiklik ŞİDDETİ analizi — aynı mantık, skew için ---
+    if SKEW_SEVERITY_PATH.exists():
+        ssev = load_csv(SKEW_SEVERITY_PATH)
+        ssev_ids = sorted(set(ssev) & set(labels) & set(scores))
+        if len(ssev_ids) >= 5:
+            emit("")
+            emit(f"7) EĞİKLİK ŞİDDETİ ANALİZİ ({len(ssev_ids)} görüntü etiketlendi)")
+            emit("   (Blur/darkness kalibrasyonları düzeltildikten sonra skew 'en kötü")
+            emit("   modül' olarak en sık çıkan modül oldu ama hiç gerçek şiddet etiketiyle")
+            emit("   doğrulanmadı. Bu bölüm bunu test ediyor.)\n")
+
+            s_ord = [SKEW_SEVERITY_ORDINAL[ssev[i]["egiklik_siddet"]] for i in ssev_ids]
+
+            human_q = [QUALITY_ORDINAL[labels[i]["genel_kalite"]] for i in ssev_ids]
+            rho_q, _ = spearmanr(s_ord, human_q)
+            emit(f"   Eğiklik şiddeti vs. SENİN genel kalite kararın: rho={rho_q:.4f}")
+
+            vals = [float(scores[i]["skew_score"]) for i in ssev_ids]
+            rho_m, _ = spearmanr(s_ord, vals)
+            emit(f"   Eğiklik şiddeti vs. sistemin skew_score'u: rho={rho_m:.4f}")
+            emit("   (Güçlü NEGATİF rho = sistem gerçek eğikliği yakalıyor demektir)")
+        else:
+            emit("")
+            emit(f"7) Eğiklik şiddeti dosyası var ama yalnızca {len(ssev_ids)} ortak "
+                 f"görüntü var (>=5 gerekiyor) — 2d_label_skew.py ile daha fazla etiketle.")
 
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nRapor kaydedildi -> {REPORT_PATH}")

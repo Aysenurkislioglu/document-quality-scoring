@@ -44,6 +44,14 @@ python3 experiments/real_data/4_analyze_accuracy.py
 #     test etmeye yarar. http://127.0.0.1:5051 — sonra 4. adımı tekrar
 #     çalıştır, rapora otomatik ek bir bölüm eklenir.
 python3 experiments/real_data/2b_label_severity.py
+
+# 2c) OPSİYONEL — karanlık ŞİDDETİNİ ek olarak etiketle (hiç/az/çok).
+#     http://127.0.0.1:5052
+python3 experiments/real_data/2c_label_darkness.py
+
+# 2d) OPSİYONEL — eğiklik ŞİDDETİNİ ek olarak etiketle (düz/az/çok).
+#     http://127.0.0.1:5053
+python3 experiments/real_data/2d_label_skew.py
 ```
 
 ## Gizlilik — nerede ne duruyor
