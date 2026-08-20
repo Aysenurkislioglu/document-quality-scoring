@@ -22,9 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LABELS_PATH = PROJECT_ROOT / "results" / "real_data" / "labels.csv"
 SCORES_PATH = PROJECT_ROOT / "results" / "real_data" / "scores.csv"
 SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "severity.csv"
+DARKNESS_SEVERITY_PATH = PROJECT_ROOT / "results" / "real_data" / "darkness_severity.csv"
 REPORT_PATH = PROJECT_ROOT / "results" / "real_data" / "accuracy_report.txt"
 
 SEVERITY_ORDINAL = {"az": 0, "orta": 1, "cok": 2}
+DARKNESS_SEVERITY_ORDINAL = {"hic": 0, "az": 1, "cok": 2}
 
 QUALITY_ORDINAL = {"kotu": 0, "orta": 1, "iyi": 2}
 # Her defekt etiketi -> ilgili sistem modülü (yüksek skor = iyi, bu yüzden
@@ -159,6 +161,34 @@ def main():
             emit("")
             emit(f"5) Kapanma şiddeti dosyası var ama yalnızca {len(sev_ids)} ortak "
                  f"görüntü var (>=5 gerekiyor) — 2b_label_severity.py ile daha fazla etiketle.")
+
+    # --- 6) (opsiyonel) Karanlık ŞİDDETİ analizi — aynı mantık, darkness için ---
+    if DARKNESS_SEVERITY_PATH.exists():
+        dsev = load_csv(DARKNESS_SEVERITY_PATH)
+        dsev_ids = sorted(set(dsev) & set(labels) & set(scores))
+        if len(dsev_ids) >= 5:
+            emit("")
+            emit(f"6) KARANLIK ŞİDDETİ ANALİZİ ({len(dsev_ids)} görüntü etiketlendi)")
+            emit("   (Karanlık bayrağı bu veri setinde yalnızca 2/368 görüntüde işaretliydi —")
+            emit("   ayırt edici gücü çok düşük. Bu bölüm, darkness_score'un neredeyse her")
+            emit("   fotoğrafta 'en kötü modül' çıkmasının GERÇEK bir aydınlatma sorunu mu")
+            emit("   yoksa modülün kendi zayıflığı mı olduğunu test ediyor.)\n")
+
+            d_ord = [DARKNESS_SEVERITY_ORDINAL[dsev[i]["karanlik_siddet"]] for i in dsev_ids]
+
+            human_q = [QUALITY_ORDINAL[labels[i]["genel_kalite"]] for i in dsev_ids]
+            rho_q, _ = spearmanr(d_ord, human_q)
+            emit(f"   Karanlık şiddeti vs. SENİN genel kalite kararın: rho={rho_q:.4f}")
+
+            vals = [float(scores[i]["darkness_score"]) for i in dsev_ids]
+            rho_m, _ = spearmanr(d_ord, vals)
+            emit(f"   Karanlık şiddeti vs. sistemin darkness_score'u: rho={rho_m:.4f}")
+            emit("   (Güçlü NEGATİF rho = sistem gerçekten karanlığı yakalıyor demektir;")
+            emit("   rho≈0 = darkness_score'un gerçek karanlıkla ilgisi yok demektir)")
+        else:
+            emit("")
+            emit(f"6) Karanlık şiddeti dosyası var ama yalnızca {len(dsev_ids)} ortak "
+                 f"görüntü var (>=5 gerekiyor) — 2c_label_darkness.py ile daha fazla etiketle.")
 
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     print(f"\nRapor kaydedildi -> {REPORT_PATH}")
