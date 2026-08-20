@@ -24,3 +24,11 @@ data/processed/*
 # experiments/real_data/README.md.
 results/real_data/*
 !results/real_data/.gitkeep
+
+# HARİCİ (public) veri setleri — büyük indirilebilir ham dosyalar, repo'ya
+# gitmemeli (kolayca yeniden indirilebilir, bkz. project_notes.md).
+# Not: bunlar GİZLİ DEĞİL (kamuya açık akademik veri setleri, ör. MIDV-2019)
+# — data/raw/ ve results/real_data/'nin aksine gizlilik kısıtı yok, yalnızca
+# boyut nedeniyle commit edilmiyor.
+data/external/*
+!data/external/.gitkeep
