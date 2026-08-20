@@ -177,6 +177,17 @@ def _log_linear_score(value: float, bad: float, good: float) -> float:
 # öğrenene kadar geçici bir düzeltmedir.
 MIN_WEIGHT = 0.65
 
+# AUX (yardımcı) modüller — bkz. `_combine_scores_tiered`. Bu modüller genel
+# skora YALNIZCA belirtilen ağırlıkla, sadece ortalama üzerinden katılır;
+# "en kötü modül" (MIN_WEIGHT) cezasının adayı OLAMAZLAR. Şu an yalnızca
+# darkness (renkli zeminde) burada — gerçek veride hem gerçek karanlıkla
+# hem genel kaliteyle zayıf ilişkili bulundu (rho≈-0.04, bkz.
+# score_darkness docstring'i), ama kullanıcı hiçbir modülün TAMAMEN
+# dışlanmasını istemedi. 368 gerçek fotoğrafla test edildi: %15 ağırlık,
+# tamamen çıkarmaya (rho=0.62) çok yakın bir sonuç veriyor (rho=0.608) —
+# hem darkness gerçekten hesaba katılıyor hem de zararı sınırlı kalıyor.
+AUX_WEIGHTS = {"darkness": 0.15}
+
 
 def _combine_scores(scores: list) -> float:
     """Basit ortalama yerine, en kötü modülü ağırlıklı olarak öne çıkarır.
@@ -186,6 +197,38 @@ def _combine_scores(scores: list) -> float:
     mean_score = sum(scores) / len(scores)
     worst_score = min(scores)
     return MIN_WEIGHT * worst_score + (1 - MIN_WEIGHT) * mean_score
+
+
+def _combine_scores_tiered(core_scores: list, aux_scores: Dict[str, float]) -> float:
+    """`_combine_scores`'un iki katmanlı hâli: CORE modüller hem "en kötü
+    modül" (MIN_WEIGHT) hem ortalama hesabına katılır; AUX modüller
+    (bkz. `AUX_WEIGHTS`) YALNIZCA ortalamaya, düşük bir ağırlıkla katılır
+    — "en kötü modül" adayı bile olamazlar.
+
+    GEREKÇE (gerçek veri doğrulamasında bulundu, bkz. project_notes.md
+    "Darkness — gerçekten dışlamak yerine katkısı sınırlandı"): darkness
+    (renkli zeminde) tamamen CORE'a dahil edildiğinde genel skoru aktif
+    olarak kötüleştiriyordu (rho 0.44). Tamamen ÇIKARMAK en iyi rho'yu
+    verdi (0.62) ama kullanıcı hiçbir modülün tamamen dışlanmasını
+    istemedi. Bu iki katmanlı yaklaşım, darkness'ı GERÇEKTEN hesaba
+    katarken (mean_all üzerinden puanı etkiler) "en kötü modül" cezasının
+    (MIN_WEIGHT) dışında tutarak zararını sınırlıyor — %15 ağırlıkla
+    rho=0.608 (tamamen çıkarmaktan yalnızca %2 daha düşük, ama darkness
+    artık dahil).
+    """
+    if not core_scores and not aux_scores:
+        return 0.0
+    if not core_scores:
+        return sum(aux_scores.values()) / len(aux_scores)
+
+    mean_core = sum(core_scores) / len(core_scores)
+    min_core = min(core_scores)
+
+    total_aux_weight = sum(AUX_WEIGHTS.get(k, 0.0) for k in aux_scores)
+    mean_all = (1 - total_aux_weight) * mean_core + sum(
+        AUX_WEIGHTS.get(k, 0.0) * v for k, v in aux_scores.items()
+    )
+    return MIN_WEIGHT * min_core + (1 - MIN_WEIGHT) * mean_all
 
 
 def score_blur(image: np.ndarray) -> Dict[str, object]:
@@ -235,11 +278,18 @@ def score_darkness(image: np.ndarray) -> Dict[str, object]:
     (en iyisi rho=-0.148, hâlâ zayıf) — muhtemelen telefon kameralarının
     otomatik pozlaması çoğu fotoğrafı benzer parlaklığa getiriyor, gerçek
     aydınlatma farkını piksel parlaklığında gizliyor. Genel skordan
-    darkness'ı ÇIKARMAK, gerçek 368 fotoğrafta Spearman rho'yu 0.44'ten
-    0.62'ye YÜKSELTTİ (bkz. project_notes.md) — yani darkness şu anki
-    haliyle genel skoru İYİLEŞTİRMİYOR, KÖTÜLEŞTİRİYOR. `reliable=False`
-    — RENKLİ zeminde. Beyaz kağıt (darkest_block_mean) HENÜZ gerçek
-    veriyle test edilmedi, bu yüzden dokunulmadı (varsayılan reliable=True).
+    darkness'ı TAMAMEN ÇIKARMAK, gerçek 368 fotoğrafta Spearman rho'yu
+    0.44'ten 0.62'ye yükseltti (bkz. project_notes.md) — ama kullanıcı
+    hiçbir modülün tamamen dışlanmasını istemedi ("hiçbir şeyi
+    dışlamamamız lazım"). Bu yüzden darkness (renkli zeminde) artık
+    `_combine_scores_tiered`'da bir AUX (yardımcı) modül olarak
+    işaretleniyor (bkz. `AUX_WEIGHTS`) — genel skora GERÇEKTEN katılıyor
+    (yalnızca %15 ağırlıkla, ortalama üzerinden) ama "en kötü modül"
+    (MIN_WEIGHT) cezasının adayı olamıyor; bu haliyle rho=0.608 —
+    tamamen çıkarmaktan yalnızca %2 daha düşük, ama darkness artık dahil.
+    `reliable=False` — RENKLİ zeminde (fusion.py'de AUX tier'a yönlendirir).
+    Beyaz kağıt (darkest_block_mean) HENÜZ gerçek veriyle test edilmedi,
+    bu yüzden dokunulmadı (varsayılan reliable=True, tam CORE üyesi).
     """
     if has_colored_background(image):
         blocks = local_brightness_blocks(image, block_size=DARKNESS_BLOCK_SIZE)
@@ -370,15 +420,23 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         "glare": glare,
     }
 
-    # Her modül yalnızca reliable=True ise (ya da hiç "reliable" alanı
-    # yoksa, ki bu varsayılan olarak güvenilir demektir — bkz. blur/skew)
-    # genel skora dahil edilir. glare: yalnızca renkli zeminde. occlusion:
-    # bkz. score_occlusion docstring'i (gerçek veriyle kalibre edildi,
-    # reliable=True). darkness: RENKLİ zeminde reliable=False (bkz.
-    # score_darkness docstring'i — gerçek veride hem gerçek karanlıkla
-    # hem genel kaliteyle ilişkisi yok, genel skoru kirletiyordu).
-    fused = [c["score"] for key, c in components.items() if c.get("reliable", True)]
-    overall = _combine_scores(fused)
+    # İki katmanlı birleştirme (bkz. _combine_scores_tiered): reliable=True
+    # (ya da hiç "reliable" alanı yoksa, varsayılan güvenilir — blur/skew)
+    # olan modüller CORE'a girer, hem "en kötü modül" hem ortalama hesabına
+    # katılır. reliable=False olup AUX_WEIGHTS'te tanımlı modüller (şu an
+    # yalnızca darkness) TAMAMEN dışlanmaz — AUX olarak yalnızca ortalamaya,
+    # düşük ağırlıkla katılır (bkz. score_darkness docstring'i). reliable=
+    # False olup AUX_WEIGHTS'te tanımlı OLMAYAN modüller (örn. glare, beyaz
+    # kağıtta score=None) tamamen dışlanır — hiç sayısal katkısı yoktur.
+    core, aux = [], {}
+    for key, c in components.items():
+        if c["score"] is None:
+            continue
+        if c.get("reliable", True):
+            core.append(c["score"])
+        elif key in AUX_WEIGHTS:
+            aux[key] = c["score"]
+    overall = _combine_scores_tiered(core, aux)
 
     return {
         "overall_score": overall,
@@ -415,17 +473,20 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
             "glare 'uygulanamaz' olarak işaretlenir, tahmini skor üretilmez."
         ),
         "darkness_note": (
-            "Darkness (renkli zeminde) HESAPLANIP GÖSTERİLİR ama genel skora "
-            "DAHİL EDİLMEZ. Gerçek veri doğrulamasında (368 kimlik fotoğrafı, "
-            "gerçek karanlık şiddeti etiketleriyle), bu skorun hem gerçek "
-            "algılanan karanlıkla hem genel kaliteyle neredeyse hiç ilişkili "
-            "olmadığı (rho≈-0.04) VE genel skoru aktif olarak kötüleştirdiği "
-            "(çıkarılınca rho 0.44'ten 0.62'ye çıktı) bulundu — bkz. "
-            "project_notes.md. Denenen tüm alternatif parlaklık istatistikleri "
-            "de başarısız oldu; muhtemel neden, telefon kameralarının otomatik "
+            "Darkness (renkli zeminde) genel skora SINIRLI ağırlıkla dahil "
+            "ediliyor (yalnızca %15, ortalama üzerinden) — 'en kötü modül' "
+            "cezasının adayı değil. Gerçek veri doğrulamasında (368 kimlik "
+            "fotoğrafı, gerçek karanlık şiddeti etiketleriyle), bu skorun "
+            "hem gerçek algılanan karanlıkla hem genel kaliteyle neredeyse "
+            "hiç ilişkili olmadığı (rho≈-0.04) bulundu, ve tam eşit üye "
+            "olarak dahil edildiğinde genel skoru kötüleştirdiği ölçüldü "
+            "(bkz. project_notes.md) — ama modül tamamen dışlanmadı, hâlâ "
+            "skora gerçekten katkıda bulunuyor. Denenen 15'ten fazla "
+            "alternatif parlaklık/kontrast/renk istatistiği de başarısız "
+            "oldu; muhtemel neden, telefon kameralarının otomatik "
             "pozlamasının gerçek aydınlatma farkını piksel parlaklığında "
             "gizlemesi. Beyaz kağıtta (darkest_block_mean) bu sorun henüz "
-            "gerçek veriyle test edilmedi, hâlâ genel skora dahildir."
+            "gerçek veriyle test edilmedi, tam ağırlıkla (CORE) dahildir."
             if components["darkness"].get("reliable") is False
             else None
         ),

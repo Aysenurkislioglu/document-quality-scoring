@@ -1449,3 +1449,37 @@ ama insanların "kötü aydınlatma" olarak algıladığı şeyin (gölge, karı
 ışık kaynağı, oto-pozlama telafisi) daha karmaşık bir olgu olduğunu ve
 basit bir eşik/kalibrasyon düzeltmesiyle çözülemeyeceğini gösteriyor —
 açık bir problem olarak kalıyor.
+
+### Darkness — gerçekten dışlamak yerine katkısı sınırlandı (kullanıcı kararı)
+
+Kullanıcı: "hiçbir şeyi dışlamamamız lazım... iyileşmesi gerek hepsinin." Bu,
+darkness'ın tamamen genel skordan çıkarılmasını (önceki karar) geçersiz kıldı.
+
+Önce 15'ten fazla ek aday metrik denendi (alt-pozlanmış piksel oranı çeşitli
+eşiklerde, yerel kontrast, dinamik aralık, CLAHE-gizli-detay, histogram
+çarpıklığı, renk sıcaklığı/beyaz dengesi, doygunluk, hatta diğer modüllerle
+çapraz korelasyon) — hiçbiri gerçek karanlık şiddetiyle |rho|>0.15'i geçemedi.
+Bu, MIDV-2019 dış doğrulamasındaki rho=0.45 ile tutarlı bir şekilde
+yorumlandı: metrik KONTROLLÜ karartmaya bir miktar duyarlı, ama bu 368
+fotoğrafta gerçek/doğal bir karanlık çeşitliliği neredeyse hiç yok — hiçbir
+metrik olmayan bir sinyali bulamaz.
+
+**Çözüm — iki katmanlı (tiered) füzyon:** `_combine_scores_tiered()` eklendi.
+CORE modüller (blur, skew, occlusion, glare-uygunsa) hem "en kötü modül"
+(MIN_WEIGHT) hem ortalama hesabına katılır — eskisi gibi. AUX (yardımcı)
+modüller (`AUX_WEIGHTS = {"darkness": 0.15}`) YALNIZCA ortalamaya, düşük
+ağırlıkla katılır — "en kötü modül" cezasının adayı olamazlar. Böylece
+darkness GERÇEKTEN skora katkıda bulunuyor (tamamen dışlanmıyor) ama
+güvenilmez sinyaliyle tüm skoru domine edemiyor.
+
+**Sonuç (368 fotoğraf, gerçek doğrulama):**
+| Yaklaşım | rho | Tam eşleşme |
+|---|---|---|
+| Tam eşit üye (eski, başarısız) | 0.4405 | %34.8 |
+| Tamamen dışlanmış | 0.6207 | %53.5 |
+| **İki katmanlı, %15 ağırlık (mevcut)** | **0.6057** | **%54.3** |
+
+Tamamen dışlamaktan yalnızca %0.015 daha düşük rho ile, ama darkness artık
+hiçbir modül dışlanmadan gerçekten hesaba katılıyor — kullanıcının isteğiyle
+tam örtüşüyor. Tam eşleşme oranı bu yaklaşımda hatta biraz daha İYİ (%54.3
+vs %53.5).
