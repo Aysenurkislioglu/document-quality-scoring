@@ -1519,3 +1519,23 @@ düşmüyor) makul görünüyor, ama HENÜZ gerçek şiddet etiketiyle doğrulan
 
 Başlangıçtan bugüne rho **0.345 → 0.651** (%89 göreceli artış), hiçbir
 modül dışlanmadan.
+
+### Skew şiddeti — darkness'la aynı veri kısıtı, kod hatası değil
+
+368 fotoğrafın 362'si (%98.4) "düz" etiketlendi, yalnızca 6'sı eğik (4 az +
+2 çok). Bu, darkness'ta bulunan aynı örüntü — bu veri setinde gerçek eğiklik
+çeşitliliği neredeyse yok (muhtemelen çoğu fotoğraf benzer, dik açıdan
+çekildiği için). Ölçülen rho=-0.14 (doğru yönde ama zayıf) bu kadar küçük
+örneklemle (n=6 eğik örnek) güvenilir değil — 6 örneğe göre kalibrasyon
+ayarlamak aşırı uydurma riski taşır, bu yüzden YAPILMADI. skew_raw'ın kendi
+dağılımı (0-15°, medyan 2°, hiç 0'a düşmüyor) zaten makul görünüyor.
+
+**Genel sistem etkisi (blur+darkness+fusion düzeltmeleriyle birlikte):**
+"En kötü modül" isabet oranı %3.8'den **%41.3**'e çıktı (bkz. rapor bölüm 3)
+— bu, kalibrasyon düzeltmelerinin GERÇEKTEN işe yaradığının bağımsız bir
+kanıtı (skew'in kendi doğrulaması küçük örneklemle sınırlı kalsa da).
+
+**Sonuç:** Skew için şu an ek bir değişiklik yapılmadı — ne bozuk olduğu
+kanıtlandı ne de düzeltilmesi gereken somut bir kanıt var, yalnızca test
+edilecek yeterli veri yok. Gelecekte daha çeşitli açılarda çekilmiş gerçek
+fotoğraflarla yeniden değerlendirilebilir.
