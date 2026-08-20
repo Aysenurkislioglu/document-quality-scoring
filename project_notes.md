@@ -1404,3 +1404,48 @@ mekanizmayı paylaşıyor.
 
 Başlangıçtan bugüne rho neredeyse 2 katına çıktı (0.345 → 0.621) — hepsi gerçek,
 anonim, yerel veriyle ölçüldü, hiçbir adımda görüntü Claude'a gösterilmedi.
+
+---
+
+## Harici veri seti doğrulaması — MIDV-2019 (2026-08)
+
+Kullanıcı, blur ve darkness için daha geniş, gerçek kamera görüntüsüyle test
+istedi. Kaggle API anahtarı olmadan erişilebilen, kamuya açık bir akademik
+veri seti arandı — **MIDV-2019** (kimlik/pasaport fotoğrafları, düşük ışık
+koşulu dahil, FTP üzerinden kimlik doğrulama gerektirmeden indirilebiliyor)
+seçildi.
+
+**Disk kısıtı ve çözümü:** İlk denemede tüm veri setini diske indirmeye
+çalışırken kullanıcının diski doldu (yalnızca ~2GB boş alan kalmıştı,
+proje dışı nedenlerle zaten %98 doluydu). Çözüm: **akışlı (streaming)
+işleme** — her belge türü indirilir, işlenir, YALNIZCA SAYISAL SONUÇLAR
+kaydedilir, sonra görüntüler SİLİNİR, sıradaki türe geçilir. Disk kullanımı
+hiçbir zaman ~800MB'ı (tek belge türü) geçmedi. Script:
+`experiments/external_validation/run_midv2019_stream.py`.
+
+**Yöntem:** Sentetik enjeksiyon — MIDV-2019'un GERÇEK kamera fotoğraflarına
+(6 belge türü: Arnavutluk/Avusturya/Çin/İspanya/Finlandiya/Sırbistan kimlik
+kartları, 90 temel görüntü) BİLİNEN şiddette yapay bulanıklık (Gaussian
+blur, ksize=0/3/7/13/21) ve karartma (çarpan=1.0/0.8/0.6/0.4/0.25) enjekte
+edilip ham metrik (laplacian_variance, darkness P10) ile karşılaştırıldı.
+Bu, sentetik mockup'ların (rho=1.00 ama gerçek dokudan yoksun) VE gerçek
+kullanıcı etiketlerinin (doğru ama küçük örneklem) ikisinin de eksik
+yönünü kapatıyor: gerçek kamera dokusu + kesin ground-truth.
+
+**Sonuç (450 ölçüm, 6 belge türü, 5.1GB disk boşta kaldı):**
+| Metrik | rho |
+|---|---|
+| blur (laplacian_variance) | **-0.8994** (çok güçlü, doğru yönde) |
+| darkness (P10 persentil) | **0.4544** (orta, doğru yönde) |
+
+**Yorum:** Blur, gerçek kamera fotoğraflarında güçlü ve tutarlı — modülün
+"en kötü modül" olarak sık çıkması muhtemelen GERÇEK bulanıklığı yansıtıyor,
+düzeltme gerektirmiyor. Darkness ise nüanslı bir sonuç verdi: KONTROLLÜ
+(bilerek karartılmış) fotoğraflarda orta düzeyde sinyal var (rho=0.45) —
+ama kullanıcının GERÇEK verisinde (insan algısına göre "ne kadar karanlık")
+neredeyse hiç sinyal yoktu (rho≈-0.045, bkz. "Gerçek Veri Doğrulaması"
+bölümü). Bu, metriğin biçimsel/uniform karartmayı bir miktar yakaladığını
+ama insanların "kötü aydınlatma" olarak algıladığı şeyin (gölge, karışık
+ışık kaynağı, oto-pozlama telafisi) daha karmaşık bir olgu olduğunu ve
+basit bir eşik/kalibrasyon düzeltmesiyle çözülemeyeceğini gösteriyor —
+açık bir problem olarak kalıyor.
