@@ -1,6 +1,7 @@
 """
-MIDV-2019 akışlı (streaming) doğrulama — blur ve darkness'ı GERÇEK kamera
-fotoğraflarıyla, BİLİNEN şiddette sentetik bozulma enjekte ederek test eder.
+MIDV-2019 akışlı (streaming) doğrulama — blur, darkness VE glare'i GERÇEK
+kamera fotoğraflarıyla, BİLİNEN şiddette sentetik bozulma enjekte ederek
+test eder.
 
 GEREKÇE: Kullanıcının 368 gerçek fotoğrafında darkness/blur'un gerçek
 şiddetle ilişkisini ölçtük ama örneklem küçüktü (özellikle darkness için
@@ -41,6 +42,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from src.blur.metrics import laplacian_variance  # noqa: E402
 from src.darkness.metrics import local_brightness_blocks  # noqa: E402
+from src.glare.metrics import glare_ratio  # noqa: E402
 
 WORK_DIR = PROJECT_ROOT / "data" / "external" / "midv2019_stream"
 RESULTS_PATH = PROJECT_ROOT / "results" / "external_validation" / "midv2019_results.csv"
@@ -54,6 +56,33 @@ DEFAULT_TYPES = [
 
 BLUR_KSIZES = [0, 3, 7, 13, 21]  # 0 = bozulmasız (kontrol)
 DARK_FACTORS = [1.0, 0.8, 0.6, 0.4, 0.25]  # 1.0 = bozulmasız (kontrol)
+GLARE_SEVERITIES = [0, 1, 2, 3, 4, 5]  # 0 = bozulmasız (kontrol)
+
+
+def apply_synthetic_glare(bgr_image: np.ndarray, severity: int, rng: np.random.RandomState) -> np.ndarray:
+    """Rastgele konumda, şiddet arttıkça büyüyen/opaklaşan beyaza yakın
+    eliptik bir "highlight" ekler — dielektrik/specular yansımayı (lens
+    parlaması, laminasyon parlaması) simüle eder. severity=0 -> değişiklik
+    yok (kontrol)."""
+    if severity <= 0:
+        return bgr_image
+    img = bgr_image.astype(np.float64)
+    h, w = img.shape[:2]
+    cx = rng.randint(int(w * 0.2), int(w * 0.8))
+    cy = rng.randint(int(h * 0.2), int(h * 0.8))
+    radius = max(5, int(min(h, w) * 0.07 * severity))
+    alpha = min(0.15 * severity, 0.92)
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    angle = int(rng.randint(0, 180))
+    cv2.ellipse(mask, (cx, cy), (radius, int(radius * 0.7)), angle, 0, 360, 255, -1)
+    k = max(3, (radius // 2) | 1)  # tek sayı kernel
+    mask = cv2.GaussianBlur(mask, (k, k), 0)
+    mask_f = (mask.astype(np.float64) / 255.0)[..., None] * alpha
+
+    white = np.full_like(img, 250.0)
+    blended = img * (1 - mask_f) + white * mask_f
+    return np.clip(blended, 0, 255).astype(np.uint8)
 
 
 def download_and_extract(doc_type: str) -> Path:
@@ -95,6 +124,7 @@ def collect_sample_images(extract_dir: Path, max_images: int = 15) -> list:
 
 def evaluate_doc_type(doc_type: str, writer):
     extract_dir = download_and_extract(doc_type)
+    rng = np.random.RandomState(hash(doc_type) % (2**31))
     try:
         samples = collect_sample_images(extract_dir)
         print(f"  {len(samples)} örnek görüntü işleniyor...")
@@ -125,6 +155,14 @@ def evaluate_doc_type(doc_type: str, writer):
                     "doc_type": doc_type, "metric": "darkness", "condition": factor,
                     "raw_value": p10,
                 })
+
+            for severity in GLARE_SEVERITIES:
+                glared = apply_synthetic_glare(img, severity, rng)
+                ratio = glare_ratio(glared)
+                writer.writerow({
+                    "doc_type": doc_type, "metric": "glare", "condition": severity,
+                    "raw_value": ratio,
+                })
     finally:
         cleanup(doc_type)
 
@@ -134,7 +172,7 @@ def analyze():
         rows = list(csv.DictReader(f))
 
     print("\n=== SONUÇ: Sentetik şiddet vs. ham metrik (Spearman rho) ===")
-    for metric in ["blur", "darkness"]:
+    for metric in ["blur", "darkness", "glare"]:
         sub = [r for r in rows if r["metric"] == metric]
         conditions = [float(r["condition"]) for r in sub]
         values = [float(r["raw_value"]) for r in sub]

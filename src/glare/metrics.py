@@ -73,6 +73,23 @@ def glare_ratio(
     Args:
         roi: (x0, y0, x1, y1) — belirtilirse yalnızca bu bölge analiz edilir
             (örn. belgenin içerik kutusu, boş kenarlıklar hariç).
+
+    KALİBRASYON DENEMESİ (dış veri doğrulaması, MIDV-2019 + sentetik glare
+    enjeksiyonu, 45 gerçek kimlik/pasaport fotoğrafı) — DENENDİ, GERİ
+    ALINDI: v_threshold=235 (mevcut), gerçek MIDV-2019 fotoğraflarında
+    katı çıktı (severity 0-4'te glare_ratio≈0, yalnızca severity=5'te
+    tepki, rho=0.19). v_threshold=220 denendi — MIDV-2019'da rho'yu
+    0.19'dan 0.25'e çıkardı, ama projenin KENDİ sentetik doğrulama setinde
+    (72 kimlik kartı, 3 renk şeması) KRİTİK bir regresyona sebep oldu:
+    "mavi_gri" ve "yeşilimsi" (açık renkli) şemalarda severity=0'da (hiç
+    glare yokken) hatalı-pozitif oranı %76'ya fırladı (önceden 0.0000 idi,
+    bkz. project_notes.md "Glare — Kimlik Kartı Zemini Deneyi"). Açık
+    renkli kart arkaplanları, düşürülmüş eşikte kendi başlarına "glare"
+    sanılıyordu. MIDV-2019'un sınırlı renk çeşitliliği (rastgele 3 ülke
+    kartı) bu riski yakalayamadı — kendi 3-şemalı sentetik setimiz yakaladı.
+    v_threshold=235'e GERİ ALINDI; MIDV-2019'daki mütevazı iyileşme,
+    gerçek dünyadaki daha geniş renk çeşitliliğinde hatalı-pozitif riskini
+    haklı çıkarmadı.
     """
     if roi is not None:
         x0, y0, x1, y1 = roi

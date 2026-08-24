@@ -1539,3 +1539,41 @@ kanıtı (skew'in kendi doğrulaması küçük örneklemle sınırlı kalsa da).
 kanıtlandı ne de düzeltilmesi gereken somut bir kanıt var, yalnızca test
 edilecek yeterli veri yok. Gelecekte daha çeşitli açılarda çekilmiş gerçek
 fotoğraflarla yeniden değerlendirilebilir.
+
+### Glare — MIDV-2019 dış doğrulaması denendi, eşik değişikliği GERİ ALINDI
+
+Kullanıcının "başka bir yerde bulut ortamında çalıştıralım, diskimi zorlamayalım"
+isteğiyle, MIDV-2019 glare doğrulaması bu kez TAMAMEN uzak (remote) bir ajanla
+yapıldı — hiçbir dosya kullanıcının diskine hiç dokunmadı (ajan, FTP byte-range
+istekleriyle yalnızca gereken görüntüleri bellekte indirip işledi, zip/dosya
+hiç diske yazılmadı).
+
+**Bulgu:** Mevcut eşik (v_threshold=235) gerçek MIDV-2019 fotoğraflarında katı
+çıktı — sentetik glare şiddeti 0-4 arasında glare_ratio neredeyse hep 0 kaldı,
+yalnızca en uç şiddette (5) tepki verdi (rho=0.19, 45 görüntü, 270 ölçüm).
+
+**Denenen düzeltme:** v_threshold=235→220. MIDV-2019'da rho'yu 0.19'dan 0.25'e
+çıkardı (hatalı-pozitif 0.044, kabul edilebilir sınırda). AMA bu değişiklik,
+projenin KENDİ sentetik doğrulama setinde (72 kimlik kartı, 3 renk şeması)
+KRİTİK bir regresyona sebep oldu: "mavi_gri" ve "yeşilimsi" (açık renkli)
+şemalarda severity=0'da (hiç glare yokken) hatalı-pozitif oranı **%76'ya
+fırladı** (önceden %0.00). Açık renkli kart arkaplanları, düşürülmüş eşikte
+kendi başlarına "glare" sanılmaya başladı.
+
+**Kök neden:** MIDV-2019'un rastgele seçilen 3 ülke kartı, kart arkaplanı renk
+çeşitliliğini yeterince temsil etmiyordu — kendi 3-şemalı (mavi-gri/bej/
+yeşilimsi) sentetik setimiz, gerçek dünyada karşılaşılabilecek AÇIK RENKLİ
+kart tasarımlarını kapsadığı için bu riski yakaladı, MIDV-2019 örneklemi
+yakalayamadı.
+
+**Karar:** v_threshold=235'e GERİ ALINDI (doğrulandı: sentetik sette rho≈0.99,
+hatalı-pozitif=0.0000 tekrar sağlandı). MIDV-2019'daki mütevazı iyileşme
+(rho +0.06), gerçek dünyadaki daha geniş renk çeşitliliğinde %76'ya varan
+hatalı-pozitif riskini haklı çıkarmadı — bu projenin "yanlış tespit, hiç
+tespit etmemekten daha kötü" ilkesine (bkz. belge kırpma modülü kararı)
+tutarlı bir uygulama.
+
+**Genel ders:** Tek bir dış veri setiyle (MIDV-2019, yalnızca 3 rastgele ülke
+kartı) yapılan doğrulama, KENDİ daha geniş/çeşitli sentetik test setimizin
+yakaladığı riski kaçırabiliyor — dış doğrulama tek başına yeterli değil,
+mevcut regresyon testleriyle (sentetik set) birlikte çapraz kontrol şart.
