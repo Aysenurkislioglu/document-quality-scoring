@@ -423,13 +423,25 @@ def compute_document_quality_score(image: np.ndarray) -> Dict[str, object]:
         document_detected (belge arkaplandan başarıyla kırpıldı mı) ve
         kapsam notları.
     """
+    # SKEW, kırpmadan ÖNCEKİ (orijinal) görüntüde ölçülür — GEREKÇE (gerçek
+    # veri doğrulamasında bulundu, 624 fotoğraf + gerçek eğiklik şiddeti
+    # etiketleriyle, bkz. project_notes.md): `detect_and_crop_document`
+    # perspektif düzeltmesi yapıyor — yani tespit edilen dörtgeni ZORLA
+    # dümdüz bir dikdörtgene dönüştürüyor. Bu, kırpma başarılı olan HER
+    # fotoğrafta orijinal eğikliği YAPAY OLARAK SIFIRLIYOR (skew_raw
+    # neredeyse hep ~0'a sıkışıyordu, gerçek eğiklik şiddetiyle ilişkisi
+    # kayboluyordu). Skew'in kendisi kameraya göre gerçek döndürmeyi
+    # yakalamalı — bu yüzden kırpma uygulanmamış (yalnızca ölçek
+    # normalize edilmiş) görüntü üzerinde hesaplanıyor.
+    original_normalized = _normalize_scale(image)
+
     image, document_detected = detect_and_crop_document(image)
     image = _normalize_scale(image)
     glare = score_glare(image)
     components: Dict[str, Dict[str, object]] = {
         "blur": score_blur(image),
         "darkness": score_darkness(image),
-        "skew": score_skew(image),
+        "skew": score_skew(original_normalized),
         "occlusion": score_occlusion(image),
         "glare": glare,
     }
@@ -528,13 +540,17 @@ def compare_module_methods(image: np.ndarray) -> Dict[str, object]:
     results/<modül>/scores.csv ve results/<modül>/plots/ altındadır — bu
     fonksiyon yalnızca TEK bir yüklenen görüntü için hızlı bir özet sağlar.
     """
+    # SKEW icin kirpma-oncesi goruntu kullanilir -- bkz.
+    # compute_document_quality_score'daki ayni gerekce.
+    original_normalized = _normalize_scale(image)
+
     image, _document_detected = detect_and_crop_document(image)
     image = _normalize_scale(image)
     blur_all = compute_all_blur_metrics(image)
     darkness_all = compute_all_darkness_metrics(image, block_size=DARKNESS_BLOCK_SIZE)
 
-    hough_angle = estimate_skew_hough(image)
-    projection_angle = estimate_skew_projection_profile(image)
+    hough_angle = estimate_skew_hough(original_normalized)
+    projection_angle = estimate_skew_projection_profile(original_normalized)
 
     return {
         "blur": {

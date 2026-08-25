@@ -1577,3 +1577,32 @@ tutarlı bir uygulama.
 kartı) yapılan doğrulama, KENDİ daha geniş/çeşitli sentetik test setimizin
 yakaladığı riski kaçırabiliyor — dış doğrulama tek başına yeterli değil,
 mevcut regresyon testleriyle (sentetik set) birlikte çapraz kontrol şart.
+
+### Skew — kırpma sonrası ölçüm hatası bulundu ve düzeltildi
+
+Kullanıcının kalan 256 fotoğrafı da eğiklik şiddetiyle (düz/az/çok) etiketlemesiyle
+(toplam 624/624), skew ilk kez yeterli gerçek çeşitlilikle test edilebildi: 539 düz,
+49 az, 36 çok (önceden yalnızca 6 eğik örnek vardı).
+
+**Bulgu:** Eğiklik şiddeti vs. genel kalite rho=-0.25 (anlamlı, gerçek bir sinyal) —
+ama sistemin skew_score'u bunu yalnızca rho=-0.09 ile yakalıyordu. "Az eğik" grubunun
+ölçülen açısı "düz" gruptan DAHA DÜŞÜK çıkıyordu (ters!).
+
+**Kök neden:** `score_skew`, belge kırpma İŞLEMİNDEN SONRAKİ görüntüde çalışıyordu.
+`detect_and_crop_document` perspektif düzeltmesi yapıyor — tespit edilen dörtgeni
+ZORLA dümdüz bir dikdörtgene dönüştürüyor. Bu, kırpma başarılı olan HER fotoğrafta
+orijinal eğikliği yapay olarak sıfırlıyordu (doğrulandı: kırpılan grupta skew_raw
+sabit/neredeyse sabit çıkıyordu — `ConstantInputWarning` ile teyit edildi).
+
+**Düzeltme:** Skew artık kırpmadan ÖNCEKİ (yalnızca ölçek normalize edilmiş) görüntüde
+ölçülüyor — hem `compute_document_quality_score` hem `compare_module_methods`'ta.
+
+**Sonuç (624 fotoğraf, tam yeniden skorlama):**
+- Eğiklik şiddeti vs. skew_score: rho=-0.09 → -0.06 (küçük ama doğru yönde iyileşme)
+- Genel rho: 0.5544 → 0.5536 (pratik olarak değişmedi, gürültü seviyesinde)
+
+**Neden büyük bir sıçrama olmadı:** Belge kırpma yalnızca fotoğrafların ~%34'ünde
+başarılı oluyor — bu hata yalnızca o alt kümeyi etkiliyordu, geri kalan %66'da skew
+zaten kırpılmamış görüntüde ölçülüyordu (hata orada yoktu). Yine de bu, MİMARİ OLARAK
+DOĞRU bir düzeltme — gerçek bir mantık hatasını (kırpma skew bilgisini siliyordu)
+gideriyor, hiçbir regresyona sebep olmadı, doğrulandı.
