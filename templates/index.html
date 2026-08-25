@@ -397,7 +397,7 @@
           {% endfor %}
         </div>
 
-        <p class="notes reveal">{{ result.calibration_note }}<br>{{ result.occlusion_note }}<br>{{ result.glare_note }}{% if result.darkness_note %}<br>{{ result.darkness_note }}{% endif %}</p>
+        <p class="notes reveal"><b>{% if result.document_detected %}✅ Belge arkaplandan kırpıldı{% else %}⚠️ Belge kırpılamadı — metrikler fotoğrafın TAMAMI üzerinde hesaplandı{% endif %}</b><br>{{ result.document_detection_note }}<br><br>{{ result.calibration_note }}<br>{{ result.occlusion_note }}<br>{{ result.glare_note }}{% if result.darkness_note %}<br>{{ result.darkness_note }}{% endif %}</p>
       {% endif %}
     {% endif %}
 
