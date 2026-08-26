@@ -118,9 +118,23 @@ DARKNESS_BLOCK_SIZE = 16  # experiments/darkness/run_experiment.py ile AYNI olma
 # bölgelerin komşu aydınlık piksellerle "sulanıp" gizlenmesiydi (bkz.
 # project_notes.md, kalibrasyon düzeltmesi notu).
 SKEW_BAD, SKEW_GOOD = 20.0, 0.0            # |açı|, derece (ters yönlü: 0=iyi)
-GLARE_CARD_BAD, GLARE_CARD_GOOD = 0.35, 0.0  # glare_ratio, YALNIZCA renkli zeminde
-# (bkz. results/glare/id_card_scores.csv: severity=5 ortalama 0.33, max 0.48 —
-# 0.35 bu aralığı makul şekilde kapsıyor).
+GLARE_CARD_BAD, GLARE_CARD_GOOD = 0.6, 0.0  # glare_ratio, YALNIZCA renkli zeminde
+# (log-ölçek eşleme ile kullanılır, bkz. score_glare — _log_linear_score).
+# GEREKÇE (kullanıcı geri bildirimi, gerçek veri: "çok parlak fotoğraflara
+# üst üste 0 verdiği oluyor"): eskiden BAD=0.35 DOĞRUSAL ölçekle
+# kullanılıyordu (bkz. results/glare/id_card_scores.csv: severity=5
+# ortalama 0.33, max 0.48 — 0.35 bunu kapsıyordu). Ama 623 gerçek renkli-
+# zemin fotoğrafta glare_ratio 0.88'e kadar çıkabiliyor (sentetik en kötü
+# durumun ~2 katı) — DOĞRUSAL eşlemede 0.35 ile 0.88 arasındaki HER ŞEY
+# aynı şekilde tam 0'a "yapışıyordu" (42/623, %6.7), farklı şiddetteki
+# parlamalar birbirinden ayırt edilemiyordu. ÇÖZÜM: blur'daki log1p
+# yaklaşımıyla aynı mantık (bkz. `_log_linear_score` docstring) — hem BAD
+# eşiği 0.6'ya yükseltildi hem log-ölçek uygulandı. Doğrulama: Spearman
+# rho (skor vs sentetik severity) DEĞİŞMEDİ (-0.945, log-ölçek monoton
+# bir dönüşüm olduğu için sıralamayı bozmuyor); gerçek veride tam-0 alan
+# foto sayısı 42/623 (%6.7) -> 19/623 (%3.0)'a düştü, severity=5 ortalama
+# skoru ~5 -> ~39.5'e çıktı (kasıtlı: sentetik severity=5, gerçek dünyanın
+# gösterebileceği en şiddetli parlamayı temsil etmiyor, bkz. yukarı).
 
 DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD = 60.0, 140.0  # P10 (persentil), YALNIZCA
 # renkli zeminde. GEREKÇE: kullanıcı gerçek kimlik kartlarında darkness'ın
@@ -134,12 +148,20 @@ DARKNESS_CARD_BAD, DARKNESS_CARD_GOOD = 60.0, 140.0  # P10 (persentil), YALNIZCA
 # (örn. lens vinyeti) hâlâ yakalıyor — bkz. project_notes.md, "Darkness —
 # kimlik kartı hatası".
 
-OCCLUSION_COLOR_BAD, OCCLUSION_COLOR_GOOD = 0.40, 0.14  # color_anomaly_ratio,
-# 368 GERÇEK kimlik fotoğrafının kendi dağılımından (persentiller) türetildi
-# (bkz. src/occlusion/color_anomaly.py docstring'i). GOOD=0.14 ≈ genel P5-P10
-# (çoğu "az" kapanmalı fotoğrafın oturduğu bant). BAD=0.40 ≈ P95'in biraz
-# üzeri (gözlemlenen "çok" kapanmalı fotoğrafların çoğunu kapsayacak kadar
-# geniş, ama uç aykırı değerlere (max=0.70) doymayacak kadar dar).
+OCCLUSION_COLOR_BAD, OCCLUSION_COLOR_GOOD = 0.28, 0.06  # color_anomaly_ratio
+# GEREKÇE (kullanıcı geri bildirimi, gerçek veri: "kapama her fotoğrafta
+# 0-100 arasında değil direkt 0 veya 100 olarak veriliyor"): eski eşikler
+# (BAD=0.40, GOOD=0.14) 368 fotoluk İLK veri setinden türetilmişti.
+# Veri seti 624'e çıkınca (deneme_2 eklendi — daha temiz/yakın çekimler)
+# dağılım kaydı: P5=0.082, medyan=0.152, GOOD=0.14 eşiğine neredeyse
+# bitişik — dağılımın büyük kısmı sınıra "yapışıp" skorların %24.2'si
+# (151/624) tam 0 ya da tam 100 çıkıyordu. Yeni eşikler TÜM 624 fotonun
+# güncel P5/P95'ine göre yeniden kalibre edildi (0.06/0.28) — sınırda
+# yığılma %24.2 -> %5.4'e düştü. Doğrulama: gerçek şiddet etiketli 368
+# fotoda (results/real_data/severity.csv, kapanma_siddet) rho DEĞİŞMEDİ
+# (-0.613 -> -0.612, fark istatistiksel gürültü düzeyinde) — bu sadece
+# skor-eşleme aralığının GÜNCEL dağılıma göre yeniden ayarlanması,
+# color_anomaly_ratio'nun kendi hesaplama mantığı DEĞİŞMEDİ.
 
 
 def _linear_score(value: float, bad: float, good: float) -> float:
@@ -363,7 +385,10 @@ def score_glare(image: np.ndarray) -> Dict[str, object]:
     return {
         "raw_value": ratio,
         "raw_label": "glare_ratio (renkli zemin)",
-        "score": _linear_score(ratio, GLARE_CARD_BAD, GLARE_CARD_GOOD),
+        # log-olcek: gercek fotograflarda glare_ratio'nun genis (0-0.88)
+        # kuyruklu dagilimini 0.35-BAD arasinda tek bir duz "0"a
+        # yapistirmamak icin (bkz. GLARE_CARD_BAD yorumu).
+        "score": _log_linear_score(ratio, GLARE_CARD_BAD, GLARE_CARD_GOOD),
         "reliable": True,
         "applicable": True,
     }
@@ -396,6 +421,19 @@ def score_occlusion(image: np.ndarray) -> Dict[str, object]:
         "raw_label": "color_anomaly_ratio",
         "score": _linear_score(ratio, OCCLUSION_COLOR_BAD, OCCLUSION_COLOR_GOOD),
         "reliable": True,
+        # GEREKÇE (kullanıcı geri bildirimi — deneme_2 parmak-kapama içeriyor,
+        # kartın YÜZDE KAÇININ kapatıldığını görmek istiyor): köşe/dörtgen
+        # tespitiyle bunu kesin ölçmeye çalıştık (bkz. project_notes.md,
+        # "Belge kırpma — Hough rekonstrüksiyonu DENENDİ, TERK EDİLDİ"),
+        # gerçek fotoğraflarda güvenilir olmadı. Bunun yerine, zaten var
+        # olan color_anomaly_ratio'yu doğrudan bir YÜZDE olarak sunuyoruz —
+        # kartın kadrajı BÜYÜK ÖLÇÜDE doldurduğu fotoğraflarda (örn.
+        # deneme_2, yakın çekim) "tüm görüntü" ≈ "kart" olduğu için bu,
+        # köşe tespiti gerekmeden makul bir yaklaşık kapatma yüzdesi verir.
+        # BİLİNEN SINIRLAMA: kart kadrajın küçük bir kısmını dolduruyorsa
+        # (arkaplan çok fazlaysa) bu yüzde ŞİŞER (arkaplan da "sapma"
+        # sayılır) — bkz. UI'daki uyarı notu.
+        "coverage_percentage": round(ratio * 100, 1),
     }
 
 

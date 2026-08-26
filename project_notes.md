@@ -1606,3 +1606,127 @@ başarılı oluyor — bu hata yalnızca o alt kümeyi etkiliyordu, geri kalan %
 zaten kırpılmamış görüntüde ölçülüyordu (hata orada yoktu). Yine de bu, MİMARİ OLARAK
 DOĞRU bir düzeltme — gerçek bir mantık hatasını (kırpma skew bilgisini siliyordu)
 gideriyor, hiçbir regresyona sebep olmadı, doğrulandı.
+
+### Belge kırpma — ML aday sınıflandırıcı DENENDİ, TERK EDİLDİ (commit edilmedi)
+
+Kullanıcı onayıyla ("dl ve ml olabilir ama cnn tarzı bir şey olmasın") klasik
+özellik + Random Forest tabanlı bir kırpma-adayı sınıflandırıcısı denendi:
+sentetik sahnelerde (bilinen arkaplan üzerine bilinen konumda kart) tüm 4-köşe
+adayları çıkarılıp (alan oranı, en-boy oranı, kenar gücü, iç/dış kontrast,
+doluluk, genişleme) özellikleriyle IoU≥0.7 etiketlenerek eğitildi.
+
+**Sorun 1 (çözüldü):** İlk sürüm "eğri büğrü" kırpmalar üretti — köşe sıralama
++ dikdörtgenlik kontrolü eksikti. `_is_roughly_rectangular()` eklenerek
+düzeltildi (kenar oranı + köşe açısı toleransı).
+
+**Sorun 2 (kısmen çözüldü, ama yetersiz):** "deneme_2" fotoğrafları zaten
+kadrajı büyük ölçüde dolduruyor — bu durumda sistem KAPATMA NESNESİNİN
+(el/kağıt/gölge) sınırına yakınlaştırma yapıyordu, çünkü ML skorlama yalnızca
+en yüksek olasılığa göre seçim yapıyordu, alan büyüklüğü hiç süzülmüyordu
+(kapatma kenarları çoğu zaman asıl belge kenarından DAHA KESKİN kontrasta
+sahip — edge_strength özelliği modelde en yüksek ağırlıklı: 0.455). Alan
+tabanı + "eşiği geçenler arasından en büyük alanlı" seçimiyle düzeltilmeye
+çalışıldı ama kullanıcı görsel doğrulamada sorunun DEVAM ettiğini bildirdi.
+
+**Karar (kullanıcı, zaman kısıtı nedeniyle):** Bu yaklaşım TERK EDİLDİ.
+Hiçbir şey commit edilmemişti, `git checkout` ile tam olarak eski (saf
+kural-tabanlı) `document_crop.py`'ye dönüldü, eğitim scripti ve model
+dosyası silindi — hiçbir iz kalmadı. Belge kırpma tespit oranı düşük
+kalmaya devam ediyor (~%17-34) ve bu, blur/darkness/occlusion/skew/glare
+modüllerinin bir alt kümesini (kırpma başarısız olan fotoğraflarda)
+etkilemeye devam ediyor — ama bu artık kabul edilmiş, UI'da şeffaf şekilde
+işaretlenen (`document_detected=False` uyarısı) bilinen bir sınırlama.
+
+### Glare — log-ölçek skor eşlemesi (gerçek veride "üst üste 0" bulgusu)
+
+**Bulgu:** 623 renkli-zeminli gerçek fotoğrafın %6.7'si (42/623) glare skoru
+tam 0 alıyordu — ama bu 42'nin glare_ratio'su 0.35'ten 0.88'e kadar geniş bir
+aralığa yayılıyordu (sentetik en kötü durum bile max 0.48'e çıkıyordu).
+Doğrusal `_linear_score(ratio, BAD=0.35, GOOD=0.0)`, bu geniş aralığı TEK bir
+düz 0'a "yapıştırıyordu" — farklı şiddetteki parlamalar ayırt edilemiyordu.
+
+**Düzeltme:** Blur'daki `_log_linear_score` (log1p) yaklaşımı glare'e de
+uygulandı, BAD eşiği 0.35 → 0.6'ya yükseltildi.
+
+**Doğrulama:** Spearman rho (skor vs. sentetik severity) DEĞİŞMEDİ (-0.945,
+log-ölçek monoton bir dönüşüm olduğu için sıralamayı bozmuyor — yalnızca
+mutlak skor değerleri değişti). Gerçek veride tam-0 alan foto oranı
+%6.7 (42/623) → %3.0 (19/623)'e düştü. Sentetik severity 0→5 arası skor
+gradyanı: 100 / 91.7 / 82.5 / 70.5 / 55.9 / 39.5 (öncekinde severity 4-5
+neredeyse hepsi 0'a çöküyordu). Düşük risk: yalnızca skor-eşleme aralığı
+değişti, glare TESPİT mantığı (`v_threshold=235`, bkz. yukarıdaki MIDV-2019
+bulgusu) dokunulmadı.
+
+### Occlusion — eşik yeniden kalibrasyonu (gerçek veride "0 veya 100'e yığılma" bulgusu)
+
+**Bulgu:** Tüm 624 fotoğrafta occlusion skorlarının %24.2'si (151/624) tam 0
+ya da tam 100 çıkıyordu (asıl ağırlık 100'de: %23.7). Kök neden: eski eşikler
+(`BAD=0.40`, `GOOD=0.14`) yalnızca İLK 368 fotoluk setten türetilmişti; set
+624'e çıkınca (deneme_2 eklendi — daha temiz/yakın çekimler) dağılım kaydı —
+P5=0.082, medyan=0.152 — GOOD=0.14 eşiğine neredeyse bitişik hale geldi ve
+dağılımın büyük kısmı sınıra "yapıştı".
+
+**Düzeltme:** Eşikler TÜM 624 fotonun güncel P5/P95'ine göre yeniden kalibre
+edildi: `BAD=0.40→0.28`, `GOOD=0.14→0.06`.
+
+**Doğrulama:** Gerçek şiddet etiketli 368 fotoda (`results/real_data/
+severity.csv`, kapanma_siddet: az/orta/çok) rho DEĞİŞMEDİ (-0.613 → -0.612,
+fark gürültü düzeyinde). Sınırda (0/100) yığılma %24.2 (151/624) → %5.4
+(34/624)'e düştü. `color_anomaly_ratio`'nun kendi hesaplama mantığı
+DEĞİŞMEDİ, yalnızca skor-eşleme aralığı güncel dağılıma göre ayarlandı.
+
+### Belge kırpma — Hough doğru-parçası rekonstrüksiyonu DENENDİ, TERK EDİLDİ (üçüncü tur, commit edilmedi)
+
+Kullanıcı geri bildirimi: "deneme_2" özellikle PARMAK/nesne kapaması
+içeriyor — kapatma ORANININ doğru hesaplanabilmesi için önce kartın GERÇEK
+(kapatmadan etkilenmemiş) dikdörtgen sınırının bilinmesi gerekiyor. Saf
+kontur tabanlı yöntem buna yapısal olarak uygun değil (kenar kısmen
+kapandığında dış kontur bütünlüğü bozuluyor).
+
+**Denenen yöntem:** Hough doğru parçalarından kenar rekonstrüksiyonu — bir
+kenarın küçük bir görünür kısmı bile TAM doğru denklemini (rho, theta)
+belirlemeye yeterli olduğundan kısmi kapanmaya karşı teorik olarak
+dayanıklı. Sentetik testte doğrulandı: kapanma %65'e çıksa bile IoU>0.83
+(temiz sahnede IoU=0.989).
+
+**Bulunan ve düzeltilen 2 ayrı hata:**
+1. `_line_to_normal_form` rho'yu doğrunun TEĞET yönüne göre hesaplıyordu
+   (NORMAL yönü olması gerekirken) — matematiksel olarak tutarsız,
+   kesişim hesaplamasını tamamen bozuyordu.
+2. Yön/paralel-kenar kümeleme `cv2.kmeans` (rastgele başlangıç, sabit
+   tohum yok) kullanıyordu — AYNI fotoğraf çalıştırma çalıştırma FARKLI
+   sonuç verebiliyordu (bazen doğru, bazen kapatma nesnesine yakınlaşan
+   yanlış bir kırpma, bazen "None"). Deterministik histogram+en-büyük-
+   boşluk yöntemine geçirildi, doğrulandı (8 tekrar → birebir aynı sonuç).
+
+**Sonuç (kullanıcının kendi görsel doğrulaması, 3 ayrı tur):** İki hata da
+düzeltildikten SONRA bile, kullanıcı gerçek fotoğraflarda hâlâ "nesneye
+yakınlaşma" hatasını gözlemledi. Kök neden: sentetik eğitim verisindeki
+"parmak" simülasyonu (düz renkli elips) gerçek parmak/el/yabancı nesnelerin
+görsel çeşitliliğini (doku, gölge, kenar karakteri) yakalayamıyor — ve
+gerçek fotoğraflarla eğitim/doğrulama yapılamadığı için (gizlilik kuralı,
+Claude gerçek kimlik fotoğrafı GÖREMEZ) bu domain gap kapatılamadı.
+
+**Karar (kullanıcı: "başka bir yöntem denemeliyiz"):** Köşe/dörtgen tespiti
+TAMAMEN TERK EDİLDİ. `document_crop.py` tekrar `git checkout` ile temiz
+hale getirildi, hiçbir iz kalmadı (3. kez).
+
+**Pivot — zaten var olan bir çözüm:** `color_anomaly_ratio` (occlusion
+modülü, gerçek veriyle rho=0.61 doğrulanmış) geometrik köşe tespitine HİÇ
+ihtiyaç duymuyor — görüntünün kendi medyan renginden sapan piksel oranını
+ölçüyor. Kart kadrajı büyük ölçüde dolduran fotoğraflarda ("deneme_2")
+"tüm görüntü" ≈ "kart" olduğundan, bu oran zaten dolaylı olarak kapatma
+yüzdesine yakın bir yaklaşıklık veriyor. `score_occlusion()`'a
+`coverage_percentage` (ratio*100) alanı eklendi, UI'da "Yaklaşık kapatma
+oranı: %X" olarak gösteriliyor (`document_detected=False` durumunda —
+arkaplan da "sapma" sayılacağından şişme riski konusunda uyarı notuyla
+birlikte).
+
+**Genel ders (bu oturumda ÜÇÜNCÜ kez aynı doğrultuda tekrarlanan bulgu):**
+Sentetik-veri-tabanlı ML/geometrik yöntemler, gerçek verinin görsel
+çeşitliliğini (özellikle "yabancı nesne" gibi açık uçlu kategoriler için)
+yakalamakta yapısal olarak zorlanıyor — ve bu projede gerçek veriyle
+doğrudan eğitim/görsel doğrulama YAPILAMIYOR (gizlilik kısıtı). Bu durumda
+en güvenilir yol, YENİ bir sentetik-eğitimli bileşen eklemek değil, zaten
+GERÇEK veriyle doğrulanmış mevcut bir metriği (burada: color_anomaly_ratio)
+yeniden amaca uygun şekilde sunmak oldu.

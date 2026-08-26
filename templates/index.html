@@ -363,6 +363,9 @@
               {% else %}
                 <div class="bar-track"><div class="bar-fill {{ sclass }}" style="width: {{ comp.score }}%"></div></div>
                 <div class="module-raw">Ham metrik ({{ comp.raw_label }}): {{ "%.3f"|format(comp.raw_value) }}</div>
+                {% if key == "occlusion" and comp.coverage_percentage is defined %}
+                  <div class="module-flag">Yaklaşık kapatma oranı: <b>%{{ "%.1f"|format(comp.coverage_percentage) }}</b>{% if not result.document_detected %} (belge kırpılamadığı için bu oran, kart kadrajın küçük bir kısmını dolduruyorsa şişebilir — arkaplan da "sapma" olarak sayılır){% endif %}</div>
+                {% endif %}
                 {% if key == "glare" %}
                   <div class="module-flag">Renkli zemin (kimlik kartı/pasaport benzeri) tespit edildi — ortalamaya dahil edildi.</div>
                 {% endif %}
